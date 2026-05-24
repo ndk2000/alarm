@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Group Alarm</string>
+
+    <!-- 标题栏 -->
+    <string name="app_title">Smart Alarms</string>
+
+    <!-- 底部导航 -->
+    <string name="nav_alarms">Alarms</string>
+    <string name="nav_chimes">Chimes</string>
+    <string name="nav_timer">Timer</string>
+    <string name="nav_sync">Sync</string>
+    <string name="nav_about">About</string>
+
+    <!-- 闹钟列表 -->
+    <string name="no_label">No Label</string>
+    <string name="default_ringtone">System Default</string>
+    <string name="group_alarms_count">%d alarms</string>
+    <string name="no_alarms_in_group">No alarms in this group, tap below to add</string>
+    <string name="add_alarm_task">Add Alarm Task</string>
+    <string name="drag_tip">💡 Long press ☰ and drag to move alarm between groups!</string>
+    <string name="confirm_delete_title">Confirm Delete</string>
+    <string name="confirm_delete_text">Are you sure you want to delete this alarm? This action cannot be undone.</string>
+    <string name="delete">Delete</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- 新建分组对话框 -->
+    <string name="create_group_title">New Alarm Group</string>
+    <string name="group_name_label">Group Name</string>
+    <string name="group_name_placeholder">e.g. Work, Study</string>
+    <string name="create">Create</string>
+
+    <!-- 新增/修改闹钟对话框 -->
+    <string name="edit_alarm_title">Edit Alarm</string>
+    <string name="new_alarm_title">New Alarm</string>
+    <string name="time_picker_hint">Slide to set time</string>
+    <string name="alarm_label_label">Label</string>
+    <string name="alarm_label_placeholder">e.g. Wake up, Exercise</string>
+    <string name="repeat_days">Repeat</string>
+    <string name="mon">Mon</string>
+    <string name="tue">Tue</string>
+    <string name="wed">Wed</string>
+    <string name="thu">Thu</string>
+    <string name="fri">Fri</string>
+    <string name="sat">Sat</string>
+    <string name="sun">Sun</string>
+    <string name="select_ringtone">Select Ringtone</string>
+    <string name="vibrate_on_ring">Vibrate on ring</string>
+    <string name="confirm">Confirm</string>
+    <string name="cancel_alarm">Cancel</string>
+
+    <!-- 铃声选择对话框 -->
+    <string name="select_ringtone_title">Select Ringtone</string>
+    <string name="external_import">Import</string>
+    <string name="record_yourself">Record</string>
+    <string name="search_placeholder">Search ringtones…</string>
+    <string name="tab_system_recording">🎙️ Recordings</string>
+    <string name="tab_custom_sync">📁 Custom Sync</string>
+    <string name="tab_builtin_sounds">🎵 Built-in</string>
+    <string name="no_recordings_found">No recordings found in /Recordings folder\n(Record using the phone\'s recorder app\nor copy audio files to the Recordings folder)</string>
+    <string name="no_custom_ringtones">No custom ringtones uploaded yet.\nUse WiFi console to upload.</string>
+    <string name="no_system_ringtones">No system ringtones found</string>
+    <string name="permission_mic_required">Microphone permission required to record</string>
+    <string name="play_error">Cannot play this ringtone</string>
+    <string name="imported_and_selected">Imported and selected: %s</string>
+
+    <string name="mic_recording_prefix">🎙️ Recording: %s</string>
+    <string name="preview_ringtone">Preview ringtone</string>
+    <string name="chinese">中文</string>
+
+    <!-- 录音棚 -->
+    <string name="recording_title">🎙️ Recording Studio</string>
+    <string name="recording_name_placeholder">e.g. Morning meditation</string>
+    <string name="is_recording">Recording: %s</string>
+    <string name="mic_ready">Microphone ready</string>
+    <string name="mic_checking">Checking microphone…</string>
+    <string name="mic_no_permission">Microphone permission required</string>
+    <string name="stop_and_select">Stop &amp; Select</string>
+    <string name="start_recording">Start Recording</string>
+    <string name="discard_and_back">Discard &amp; Back</string>
+    <string name="recording_back">Back</string>
+    <string name="recording_save_failed">Save failed, please retry</string>
+
+    <!-- Wi-Fi 同步选项卡 -->
+    <string name="wifi_sync">Wi-Fi Sync</string>
+    <string name="wifi_desc">LAN wireless ringtone transfer</string>
+    <string name="browser_url_hint">Enter the following URL in browser:</string>
+    <string name="wifi_network_hint">Make sure your phone and computer are on the same WiFi network</string>
+    <string name="remote_sync">Remote Sync (pull from another phone)</string>
+    <string name="enter_ip_label">Enter target phone IP</string>
+    <string name="enter_ip_placeholder">e.g. 192.168.1.100</string>
+    <string name="syncing">Syncing…</string>
+    <string name="pull_from_remote">Pull &amp; Overwrite Local</string>
+    <string name="remote_sync_desc">Instructions: Enable Wi-Fi Sync on the other phone, enter its IP here, and tap sync to pull all alarm configurations and ringtones. ⚠️ This will overwrite all local alarm data!</string>
+    <string name="local_backup">Local Backup &amp; Restore</string>
+    <string name="backup_export">Export Backup</string>
+    <string name="import_restore">Import Restore</string>
+    <string name="uploaded_ringtones">🎵 Uploaded Ringtones (%d)</string>
+    <string name="no_uploaded_ringtones">No uploaded ringtones yet.\nUse WiFi console to upload.</string>
+    <string name="connected_wlan">Connect WLAN</string>
+
+    <!-- 全局设置对话框 -->
+    <string name="settings_title">Settings</string>
+    <string name="language">Language</string>
+    <string name="duplicate_delay">Duplicate Delay</string>
+    <string name="themes">Themes</string>
+    <string name="theme_night">Night</string>
+    <string name="theme_forest">Forest</string>
+    <string name="theme_sunset">Sunset</string>
+    <string name="done">Done</string>
+    <string name="minutes_abbr">min</string>
+
+    <!-- 报时选项卡 -->
+    <string name="hourly_chime">🛎️ 24-Hour Chime</string>
+    <string name="hourly_chime_vibrate">Vibrate</string>
+    <string name="chime_style">Chime Style</string>
+    <string name="bell_style">Bell Style</string>
+    <string name="bell_melody">🎵 Melody</string>
+    <string name="bell_westminster">⛪ Westminster</string>
+    <string name="bell_clear">✨ Clear</string>
+    <string name="bell_dreamy">💫 Dreamy</string>
+    <string name="test">Test</string>
+    <string name="testing_tts">Attempting to trigger TTS test…</string>
+    <string name="chime_style_tts">TTS Voice</string>
+    <string name="chime_style_bell">Musical Bell</string>
+    <string name="tts_engine">TTS Engine</string>
+    <string name="tts_voice">TTS Voice</string>
+    <string name="speed">Speed</string>
+    <string name="pitch">Pitch</string>
+    <string name="system_default">System Default</string>
+    <string name="default_voice">Default (engine auto-select)</string>
+    <string name="quality_hd">★HD</string>
+    <string name="quality_high">High</string>
+    <string name="quality_standard">Standard</string>
+    <string name="quality_basic">Basic</string>
+    <string name="test_mode_on">Test mode enabled – chimes every 5 seconds</string>
+    <string name="test_mode_off">Test mode disabled</string>
+    <string name="test_mode_btn">⚡ Test Mode (loop every 5s)</string>
+    <string name="select_active_chimes">Select active chime hours</string>
+    <string name="cache_ready">✅ 24 pre-recorded chimes ready</string>
+    <string name="voice_cache_ready">⏳ Voice cache %d/24 (auto-generated on first use)</string>
+
+    <!-- 计时器选项卡 -->
+    <string name="set_timer">Set Timer</string>
+    <string name="hours_unit">h</string>
+    <string name="minutes_unit">m</string>
+    <string name="seconds_unit">s</string>
+    <string name="start_timer">Start</string>
+    <string name="stop_timer">Stop</string>
+
+    <!-- 关于选项卡 -->
+    <string name="about_title">About</string>
+    <string name="about_description">App description, version info, copyright…</string>
+
+    <!-- Toast 消息 -->
+    <string name="permission_granted">Notification, storage and audio permissions granted</string>
+    <string name="permission_denied">Some permissions not granted – may not be able to scan local recordings</string>
+    <string name="export_success">Configuration exported successfully</string>
+    <string name="export_failed">Export failed</string>
+    <string name="export_error">Export error: %s</string>
+    <string name="import_success">✅ Configuration and ringtones restored successfully</string>
+    <string name="import_failed">❌ Import failed – invalid file format</string>
+    <string name="import_error">⚠️ Import error: %s</string>
+
+    <!-- AlarmsTab -->
+    <string name="no_groups_text">No groups configured yet</string>
+    <string name="no_groups_hint">Tap the 👥 icon in the top right to create your first group</string>
+    <string name="preset_everyday">Everyday</string>
+    <string name="preset_weekdays">Weekdays</string>
+    <string name="preset_weekends">Weekends</string>
+    <string name="preset_once">Once</string>
+    <string name="preset_custom">Custom</string>
+    <string name="sync_mode_title">Select sync mode</string>
+    <string name="sync_mode_desc">How to handle existing local alarms?</string>
+    <string name="sync_mode_clear">Clear &amp; Replace</string>
+    <string name="sync_mode_merge">Merge</string>
+</resources>

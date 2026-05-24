@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Clock outer circle -->
+    <path
+        android:fillColor="#ADC6FF"
+        android:pathData="M54,24 c-16.5,0 -30,13.5 -30,30 s13.5,30 30,30 s30,-13.5 30,-30 S70.5,24 54,24z M54,78 c-13.2,0 -24,-10.8 -24,-24 s10.8,-24 24,-24 s24,10.8 24,24 S67.2,78 54,78z" />
+    <!-- Clock hands -->
+    <path
+        android:fillColor="#ADC6FF"
+        android:pathData="M52.5,36 h3 v18 h12 v3 h-15 z" />
+    <!-- Alarm bells (ears) -->
+    <path
+        android:fillColor="#F095FF"
+        android:pathData="M21.2,30.2 l8.5,-8.5 l4.2,4.2 l-8.5,8.5 z M86.8,30.2 l-8.5,-8.5 l-4.2,4.2 l8.5,8.5 z" />
+</vector>

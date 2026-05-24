@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Group Alarm</string>
+
+    <!-- 标题栏 -->
+    <string name="app_title">打卡闹钟</string>
+
+    <!-- 底部导航 -->
+    <string name="nav_alarms">闹钟</string>
+    <string name="nav_chimes">报时</string>
+    <string name="nav_timer">计时器</string>
+    <string name="nav_sync">同步</string>
+    <string name="nav_about">关于</string>
+
+    <!-- 闹钟列表 -->
+    <string name="no_label">无标签</string>
+    <string name="default_ringtone">系统默认</string>
+    <string name="group_alarms_count">%d 个闹钟任务</string>
+    <string name="no_alarms_in_group">当前分组无闹钟，点击下方添加</string>
+    <string name="add_alarm_task">添加闹钟任务</string>
+    <string name="drag_tip">💡 长按 ☰ 拖拽闹钟可跨分组移动！</string>
+    <string name="confirm_delete_title">确认删除</string>
+    <string name="confirm_delete_text">确定要删除这个闹钟吗？此操作不可撤销。</string>
+    <string name="delete">删除</string>
+    <string name="cancel">取消</string>
+
+    <!-- 新建分组对话框 -->
+    <string name="create_group_title">新建闹钟分组</string>
+    <string name="group_name_label">分组名称</string>
+    <string name="group_name_placeholder">例如：工作、备考复习</string>
+    <string name="create">创 建</string>
+
+    <!-- 新增/修改闹钟对话框 -->
+    <string name="edit_alarm_title">修改闹钟配置</string>
+    <string name="new_alarm_title">新增闹钟配置</string>
+    <string name="time_picker_hint">上下拨盘滑动选择时间</string>
+    <string name="alarm_label_label">备注标签</string>
+    <string name="alarm_label_placeholder">例如：起床、健身</string>
+    <string name="repeat_days">重复周期</string>
+    <string name="mon">一</string>
+    <string name="tue">二</string>
+    <string name="wed">三</string>
+    <string name="thu">四</string>
+    <string name="fri">五</string>
+    <string name="sat">六</string>
+    <string name="sun">日</string>
+    <string name="select_ringtone">选择铃声</string>
+    <string name="vibrate_on_ring">鸣响时振动</string>
+    <string name="confirm">确 定</string>
+    <string name="cancel_alarm">取 消</string>
+
+    <!-- 铃声选择对话框 -->
+    <string name="select_ringtone_title">选择铃声</string>
+    <string name="external_import">外部导入</string>
+    <string name="record_yourself">自己录音</string>
+    <string name="search_placeholder">搜索内置或导入的铃声…</string>
+    <string name="tab_system_recording">🎙️ 系统录音</string>
+    <string name="tab_custom_sync">📁 自定义同步</string>
+    <string name="tab_builtin_sounds">🎵 内置声音</string>
+    <string name="no_recordings_found">没有在 /Recordings 文件夹中发现录音\n（支持直接在手机自带录音机中录制声音\n或将音频文件复制到存储卡的 Recordings 文件夹下）</string>
+    <string name="no_custom_ringtones">暂无已上传的自定义铃声，请使用 WiFi 控制台上传</string>
+    <string name="no_system_ringtones">未找到系统内置铃声内容</string>
+    <string name="permission_mic_required">必须获得麦克风授权才能自己录音</string>
+    <string name="play_error">无法播放此铃声试听</string>
+    <string name="imported_and_selected">导入并选择了铃声：%s</string>
+
+    <string name="mic_recording_prefix">🎙️ 录音：%s</string>
+    <string name="preview_ringtone">试听</string>
+    <string name="chinese">中文</string>
+
+    <!-- 录音棚 -->
+    <string name="recording_title">🎙️ 开始录音</string>
+    <string name="recording_name_placeholder">例如：晨间冥想引导</string>
+    <string name="is_recording">正在高速录制中：%s</string>
+    <string name="mic_ready">麦克风就绪</string>
+    <string name="mic_checking">正在检测麦克风…</string>
+    <string name="mic_no_permission">需要麦克风权限</string>
+    <string name="stop_and_select">停止录制并选择该音频</string>
+    <string name="start_recording">开始录制新备忘声音</string>
+    <string name="discard_and_back">丢弃并返回</string>
+    <string name="recording_back">返回上级</string>
+    <string name="recording_save_failed">录音保存失败，请重试</string>
+
+    <!-- Wi-Fi 同步选项卡 -->
+    <string name="wifi_sync">Wi-Fi 同步</string>
+    <string name="wifi_desc">局域网无线铃声传输</string>
+    <string name="browser_url_hint">浏览器输入以下网址：</string>
+    <string name="wifi_network_hint">确保手机与电脑/平板处于同一个 WiFi 网络</string>
+    <string name="remote_sync">远程同步（从另一台手机拉取）</string>
+    <string name="enter_ip_label">输入目标手机的 IP 地址</string>
+    <string name="enter_ip_placeholder">例如：192.168.1.100</string>
+    <string name="syncing">同步中…</string>
+    <string name="pull_from_remote">从远程拉取并覆盖本地</string>
+    <string name="remote_sync_desc">使用说明：在另一台手机上开启「Wi-Fi 同步」开关，将本机 IP 输入到目标手机中，点击同步即可将对方的所有闹钟配置和铃声拉取到本机。⚠️ 同步会覆盖本地所有闹钟数据！</string>
+    <string name="local_backup">本地备份与恢复</string>
+    <string name="backup_export">备份导出</string>
+    <string name="import_restore">导入恢复</string>
+    <string name="uploaded_ringtones">🎵 已上传铃声（%d）</string>
+    <string name="no_uploaded_ringtones">暂无已上传的自定义铃声，请使用 WiFi 控制台上传</string>
+    <string name="connected_wlan">连接Wlan</string>
+
+    <!-- 全局设置对话框 -->
+    <string name="settings_title">全局设置</string>
+    <string name="language">语言</string>
+    <string name="duplicate_delay">复制延后</string>
+    <string name="themes">主题皮肤</string>
+    <string name="theme_night">暗夜</string>
+    <string name="theme_forest">森林</string>
+    <string name="theme_sunset">暖阳</string>
+    <string name="done">完成</string>
+    <string name="minutes_abbr">分</string>
+
+    <!-- 报时选项卡 -->
+    <string name="hourly_chime">🛎️ 24小时报时</string>
+    <string name="hourly_chime_vibrate">振动</string>
+    <string name="chime_style">报时风格</string>
+    <string name="bell_style">钟声样式</string>
+    <string name="bell_melody">🎵 旋律</string>
+    <string name="bell_westminster">⛪ 西敏寺</string>
+    <string name="bell_clear">✨ 清亮</string>
+    <string name="bell_dreamy">💫 梦幻</string>
+    <string name="test">测试</string>
+    <string name="testing_tts">正在尝试触发语音测试…</string>
+    <string name="chime_style_tts">TTS 智能报时</string>
+    <string name="chime_style_bell">悦耳钟声</string>
+    <string name="tts_engine">TTS 引擎</string>
+    <string name="tts_voice">TTS 语音</string>
+    <string name="speed">语速</string>
+    <string name="pitch">音调</string>
+    <string name="system_default">系统默认</string>
+    <string name="default_voice">默认（引擎自动选择）</string>
+    <string name="quality_hd">★高清</string>
+    <string name="quality_high">高品质</string>
+    <string name="quality_standard">标准</string>
+    <string name="quality_basic">基础</string>
+    <string name="test_mode_on">速测模式已开启，每5秒循环报时</string>
+    <string name="test_mode_off">已退出速测模式</string>
+    <string name="test_mode_btn">⚡ 速测模式（每5秒循环）</string>
+    <string name="select_active_chimes">选择激活的报时整点</string>
+    <string name="cache_ready">✅ 24 段预合成报时语音已就绪</string>
+    <string name="voice_cache_ready">⏳ 缓存语音 %d/24（首次使用自动生成）</string>
+
+    <!-- 计时器选项卡 -->
+    <string name="set_timer">设置计时时长</string>
+    <string name="hours_unit">时</string>
+    <string name="minutes_unit">分</string>
+    <string name="seconds_unit">秒</string>
+    <string name="start_timer">开始计时</string>
+    <string name="stop_timer">停止计时</string>
+
+    <!-- 关于选项卡 -->
+    <string name="about_title">关于软件</string>
+    <string name="about_description">打卡闹钟诞生的目的：
+
+	现在各大平台推出的长期打卡类活动，实际上就是为了折腾人而设计的！ 尤其是时间不断的变化，导致现存的闹钟特别难用。
+基于这个原因，我自己做了一个 完全是从我个人实际体验中把能想到地方都做进了app中，希望能够给不堪重负的你们带来一点帮助！
+
+同时希望大家一起集思广益，找出它的不足，提出好的建议和意见，我和那些不听意见只会自己盲目乱干的人不同 只要合理，我都第一时间修改！和我一起将它更好的完善，成为我们强有力的一个工具！
+
+
+声明：
+
+	由于现在只是初级开发测试阶段，受不同手机的系统版本所制，应该还会有一些暂时发现不了的问题。
+所以，还是希望你在使用这个的同时，还是将系统闹钟作为主要的依据，如果你过度依赖它我们无法也不能为你错过打卡而承担任何责任！
+
+
+
+
+
+
+
+
+</string>
+
+    <!-- Toast 消息 -->
+    <string name="permission_granted">相关通知、存储与音频读取权限已获得授权</string>
+    <string name="permission_denied">部分权限未获授权，可能无法自动检索到本地录音机音频</string>
+    <string name="export_success">配置已成功导出</string>
+    <string name="export_failed">导出失败</string>
+    <string name="export_error">导出出错：%s</string>
+    <string name="import_success">✅ 配置与铃声已完全恢复，闹钟已就绪</string>
+    <string name="import_failed">❌ 导入失败，文件格式可能不正确</string>
+    <string name="import_error">⚠️ 导入过程出错：%s</string>
+
+    <!-- AlarmsTab -->
+    <string name="no_groups_text">暂未配置任何分组</string>
+    <string name="no_groups_hint">点击右上角 👥 图标，新建您的第一个群组</string>
+    <string name="preset_everyday">每天</string>
+    <string name="preset_weekdays">工作日</string>
+    <string name="preset_weekends">周末</string>
+    <string name="preset_once">仅一次</string>
+    <string name="preset_custom">自定义</string>
+    <string name="sync_mode_title">选择同步模式</string>
+    <string name="sync_mode_desc">同步数据时如何处理本地已有的闹钟？</string>
+    <string name="sync_mode_clear">清空并替换</string>
+    <string name="sync_mode_merge">合并</string>
+</resources>
