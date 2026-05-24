@@ -1,11 +1,15 @@
-name: Manual Build APK
+name: Manual Build APK for Update
 
 on:
-  workflow_dispatch: # 网页手动编译开关
+  workflow_dispatch: # 开启网页端手动点击编译按钮
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # 【核心核心】强行开启写权限，防止 403 无法创建 Release
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout Code
@@ -24,9 +28,25 @@ jobs:
     - name: Build with Gradle
       run: ./gradlew assembleDebug
 
-    # ================= 纯官方亲儿子组件：把 APK 变成网页可下载的产物 =================
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
+    # 【免限流组件】自动在 GitHub 创建带版本号的 Release
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 官方高权限令牌自动注入
       with:
-        name: my-app-apk # 下载时的压缩包名字
-        path: app/build/outputs/apk/debug/release.apk # APK 的真实路径
+        tag_name: v1.0.${{ github.run_number }} # 每次点击自动变成 v1.0.1, v1.0.2...
+        release_name: App在线更新测试版 v1.0.${{ github.run_number }}
+        draft: false
+        prerelease: false
+
+    # 【挂载 APK】把本地编译好的 APK 挂载到上面创建的 Release 中
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: app/build/outputs/apk/debug/app-debug.apk
+        asset_name: app-debug.apk
+        asset_content_type: application/vnd.android.package-archive
