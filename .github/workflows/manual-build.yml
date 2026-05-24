@@ -1,7 +1,7 @@
 name: Manual Build APK
 
 on:
-  workflow_dispatch: # 开启手动编译的终极开关
+  workflow_dispatch: # 网页手动编译开关
 
 jobs:
   build:
@@ -24,11 +24,9 @@ jobs:
     - name: Build with Gradle
       run: ./gradlew assembleDebug
 
-    - name: Create Release and Upload APK
-      uses: softprops/action-gh-release@v2
+    # ================= 纯官方亲儿子组件：把 APK 变成网页可下载的产物 =================
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
       with:
-        tag_name: manual-v1.0.${{ github.run_number }}
-        name: Manual Build #${{ github.run_number }}
-        files: app/build/outputs/apk/debug/app-debug.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: my-app-apk # 下载时的压缩包名字
+        path: app/build/outputs/apk/debug/app-debug.apk # APK 的真实路径
