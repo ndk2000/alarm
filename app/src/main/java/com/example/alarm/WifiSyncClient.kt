@@ -13,7 +13,7 @@ import java.net.URL
  * 主动连接另一台手机上的 WifiSyncServer，拉取完整的闹钟配置和铃声备份
  */
 class WifiSyncClient(private val context: Context) {
-    enum class ImportMode { CLEAR, MERGE }
+    enum class ImportMode { CLEAR, MERGE, ONLY_CHIMES }
 
     companion object {
         private const val TAG = "WifiSyncClient"
@@ -54,7 +54,7 @@ class WifiSyncClient(private val context: Context) {
 
                 // Step 2: Download
                 Log.d(TAG, "Step 2: Downloading backup ZIP...")
-                val tempZip = downloadBackup(ipAddress, port)
+                val tempZip = downloadBackup(ipAddress, port, importMode)
                 if (tempZip == null) {
                     Log.e(TAG, "Download failed (tempZip is null)")
                     return@withContext SyncResult.Error("下载备份失败，请检查网络或对方服务状态")
@@ -121,9 +121,14 @@ class WifiSyncClient(private val context: Context) {
     }
 
     /** 下载 /backup ZIP 到临时文件 */
-    private fun downloadBackup(ipAddress: String, port: Int): File? {
+    private fun downloadBackup(ipAddress: String, port: Int, importMode: ImportMode): File? {
         return try {
-            val url = URL("http://$ipAddress:$port/backup")
+            val urlString = if (importMode == ImportMode.ONLY_CHIMES) {
+                "http://$ipAddress:$port/backup?type=chimes_only"
+            } else {
+                "http://$ipAddress:$port/backup"
+            }
+            val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = CONNECT_TIMEOUT
             conn.readTimeout = READ_TIMEOUT
@@ -182,6 +187,10 @@ class WifiSyncClient(private val context: Context) {
             val ringtonesDir = File(recordingPath)
             if (!ringtonesDir.exists()) ringtonesDir.mkdirs()
 
+            // 报时缓存目录
+            val chimeDir = File(context.filesDir, "chime_cache")
+            if (!chimeDir.exists()) chimeDir.mkdirs()
+
             var configJson: String? = null
 
             java.util.zip.ZipInputStream(java.io.FileInputStream(zipFile)).use { zis ->
@@ -202,10 +211,26 @@ class WifiSyncClient(private val context: Context) {
                                 }
                             }
                         }
+                        entry.name.startsWith("chimes/") -> {
+                            val fileName = entry.name.substringAfter("chimes/")
+                            if (fileName.isNotEmpty()) {
+                                val targetFile = File(chimeDir, fileName)
+                                Log.d(TAG, "Extracting chime: $fileName")
+                                targetFile.outputStream().use { fos ->
+                                    zis.copyTo(fos)
+                                }
+                            }
+                        }
                     }
                     zis.closeEntry()
                     entry = zis.nextEntry
                 }
+            }
+
+            // 如果只是同步报时语音，到这里就结束了
+            if (importMode == ImportMode.ONLY_CHIMES) {
+                Log.i(TAG, "Chime only sync completed.")
+                return true
             }
 
             // 写数据库

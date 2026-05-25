@@ -94,6 +94,7 @@
     <string name="remote_sync_desc">Instructions: Enable Wi-Fi Sync on the other phone, enter its IP here, and tap sync to pull all alarm configurations and ringtones. ⚠️ This will overwrite all local alarm data!</string>
     <string name="local_backup">Local Backup &amp; Restore</string>
     <string name="backup_export">Export Backup</string>
+    <string name="share_config">Share Config</string>
     <string name="import_restore">Import Restore</string>
     <string name="uploaded_ringtones">🎵 Uploaded Ringtones (%d)</string>
     <string name="no_uploaded_ringtones">No uploaded ringtones yet.\nUse WiFi console to upload.</string>
@@ -109,6 +110,37 @@
     <string name="theme_sunset">Sunset</string>
     <string name="done">Done</string>
     <string name="minutes_abbr">min</string>
+
+    <!-- 电池优化白名单 -->
+    <string name="alarm_reliability">⏰ Alarm Reliability</string>
+    <string name="battery_opt_desc">On some phones (Xiaomi/Huawei/OPPO), power-saving may delay alarm ringing. Please add this app to the system whitelist.</string>
+    <string name="disable_battery_opt">Disable Battery Optimization</string>
+    <string name="disable_battery_opt_tip">Open system settings to allow background running</string>
+    <string name="battery_opt_already_disabled">✅ Battery optimization already disabled for this app</string>
+    <string name="autostart_title">Enable Autostart</string>
+    <string name="autostart_tip">Allow this app to auto-start after system boot or being killed</string>
+    <string name="manufacturer_guide_title">Phone brand setup guide</string>
+
+    <!-- 打卡任务 -->
+    <string name="checkin_title">Check-in Tasks</string>
+    <string name="checkin_no_groups">No check-in groups yet. Tap + to create.</string>
+    <string name="checkin_new_group">New Check-in Group</string>
+    <string name="checkin_edit_group">Edit Group</string>
+    <string name="checkin_group_name_label">Group Name</string>
+    <string name="checkin_group_name_placeholder">Morning Routine, Work, Study...</string>
+    <string name="checkin_tasks">Tasks</string>
+    <string name="checkin_add_task">Add Task</string>
+    <string name="checkin_task_name_hint">Wake up, Drink water, Exercise...</string>
+    <string name="checkin_remind_at">Remind at</string>
+    <string name="checkin_task_unit">tasks</string>
+    <string name="checkin_apply_title">Apply to Alarms</string>
+    <string name="checkin_apply_desc">Tasks of "%s" will be created as alarms.</string>
+    <string name="checkin_apply_add">Add to Existing</string>
+    <string name="checkin_apply_replace">Replace All Alarms</string>
+    <string name="checkin_delete_title">Delete Group?</string>
+    <string name="checkin_delete_desc">Are you sure to delete "%s"?</string>
+    <string name="nav_checkin">Check-in</string>
+    <string name="save">Save</string>
 
     <!-- 报时选项卡 -->
     <string name="hourly_chime">🛎️ 24-Hour Chime</string>
@@ -147,6 +179,8 @@
     <string name="seconds_unit">s</string>
     <string name="start_timer">Start</string>
     <string name="stop_timer">Stop</string>
+    <string name="timer_done">⏰ Time\'s up!</string>
+    <string name="timer_dismiss">Dismiss</string>
 
     <!-- 关于选项卡 -->
     <string name="about_title">About</string>
@@ -170,8 +204,51 @@
     <string name="preset_weekends">Weekends</string>
     <string name="preset_once">Once</string>
     <string name="preset_custom">Custom</string>
+    <string name="expand">Expand</string>
+    <string name="collapse">Collapse</string>
     <string name="sync_mode_title">Select sync mode</string>
     <string name="sync_mode_desc">How to handle existing local alarms?</string>
     <string name="sync_mode_clear">Clear &amp; Replace</string>
     <string name="sync_mode_merge">Merge</string>
+    <string name="sync_mode_chimes">Sync Chimes Only</string>
+    <!-- 关于 / 版本 -->
+    <string name="about_section">About</string>
+    <string name="version_format">Version %s</string>
+    <string name="build_date_format">Build %s</string>
+    <string name="view_changelog">What\'s New</string>
+    <string name="hide_changelog">Collapse</string>
+    <string name="changelog_content">📦 v1.2.0 (2025-04-05)
+
+✨ New Features:
+• Check-in task system with custom task lists &amp; reminder times
+• Batch alarm generation (add or replace existing alarms)
+• Battery optimization guide for reliable alarms
+• Brand-specific setup guides (Xiaomi, Huawei, OPPO, vivo)
+
+🔧 Improvements:
+• Fixed alarm timing calculation (no more 20-min delay)
+• Settings page redesigned with alarm reliability section
+• New "Check-in" tab in bottom nav
+
+---
+
+📦 v1.1.0 (2025-04-04)
+
+• Custom recording path
+• Duplicate offset settings (hour/minute)
+• WiFi sync for LAN data transfer
+• 24-hour chime (TTS voice / musical bell)
+• Multiple TTS engine &amp; voice selection
+
+---
+
+📦 v1.0.0 (2025-04-01)
+
+• Core alarm functionality (create, edit, delete, group)
+• Drag-and-drop group sorting
+• Custom ringtones (system + local recordings)
+• Vibration toggle
+• Theme switching (dark / forest / sunset)
+• Chinese &amp; English bilingual support
+• Data export/import backup (JSON + audio files)</string>
 </resources>

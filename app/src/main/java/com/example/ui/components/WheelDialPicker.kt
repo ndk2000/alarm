@@ -33,40 +33,46 @@ fun WheelDialPicker(
     val items = remember { range.toList() }
     var viewportHeightPx by remember { mutableIntStateOf(0) }
 
-    // 等布局完成后（viewportHeightPx > 0）再居中，避免初始 layoutInfo 未就绪导致偏移错位
-    LaunchedEffect(value, viewportHeightPx) {
+    // 仅在首次布局完成后，滚动到当前值所在位置
+    LaunchedEffect(viewportHeightPx) {
         if (viewportHeightPx == 0) return@LaunchedEffect
-        if (listState.isScrollInProgress) return@LaunchedEffect
         val index = items.indexOf(value)
         if (index != -1) {
-            // contentPadding(vertical=44dp) 已确保 items 自然居中，无需额外 offset
             listState.scrollToItem(index + 1)
         }
     }
 
-    // 仅在用户手动滑动/惯性滑动释放后，自动磁吸到距离中心聚焦槽最近的项
+    // 用户滑动释放后，自动吸附到距离中心最近的项，并动画滚动至居中
     LaunchedEffect(Unit) {
-        var skipped = false
+        var wasScrolling = false
         snapshotFlow { listState.isScrollInProgress }
             .collect { scrolling ->
-                if (!skipped) { skipped = true; return@collect }
+                if (!wasScrolling && !scrolling) {
+                    // 初始状态未滚动，跳过
+                    return@collect
+                }
+                wasScrolling = scrolling
                 if (!scrolling) {
+                    // 滚动刚停止，等待一小帧让 layout 稳定
+                    kotlinx.coroutines.delay(50)
                     val layoutInfo = listState.layoutInfo
                     val visibleItems = layoutInfo.visibleItemsInfo
-                    if (visibleItems.isNotEmpty()) {
-                        val center = layoutInfo.viewportEndOffset / 2
-                        val closest = visibleItems.minByOrNull {
-                            kotlin.math.abs((it.offset + it.size / 2) - center)
-                        }
-                        closest?.let {
-                            // 由于 index 0 是占位符，需减 1 获取 items 中的真实索引
-                            val actualIndex = it.index - 1
-                            val finalVal = items.getOrNull(actualIndex)
-                            if (finalVal != null && finalVal != value) {
-                                onValueChange(finalVal)
-                            }
-                        }
+                    if (visibleItems.isEmpty()) return@collect
+                    val center = layoutInfo.viewportEndOffset / 2
+                    val closest = visibleItems.minByOrNull {
+                        kotlin.math.abs((it.offset + it.size / 2) - center)
+                    } ?: return@collect
+                    val actualIndex = closest.index - 1 // 减去顶部占位
+                    val snappedValue = items.getOrNull(actualIndex) ?: return@collect
+                    if (snappedValue != value) {
+                        onValueChange(snappedValue)
                     }
+                    // 动画滚动到居中，实现视觉磁吸
+                    scope.launch {
+                        listState.animateScrollToItem(closest.index)
+                    }
+                    // 重置状态，避免 animateScrollToItem 结束后再一次触发磁吸
+                    wasScrolling = false
                 }
             }
     }

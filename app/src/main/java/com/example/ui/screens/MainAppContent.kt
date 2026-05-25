@@ -28,6 +28,12 @@ import com.example.db.HourlyChime
 import com.example.ui.AlarmViewModel
 import com.example.ui.dialogs.AddAlarmDialog
 import com.example.ui.dialogs.AppSettingsDialog
+import com.example.ui.screens.CheckInTab
+import com.example.db.CheckInGroupEntity
+import com.example.db.CheckInTaskEntity
+import com.example.ui.dialogs.AddCheckInGroupDialog
+import com.example.ui.dialogs.CheckInTaskInput
+import com.example.ui.dialogs.RingtoneSelectionDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +50,7 @@ fun MainAppContent(
     onToggleGroup: (AlarmGroup, Boolean) -> Unit,
     onToggleAlarm: (Alarm, Boolean) -> Unit,
     onDeleteGroup: (AlarmGroup) -> Unit,
+    onUpdateGroup: (AlarmGroup) -> Unit,
     onDeleteAlarm: (Alarm) -> Unit,
     onDuplicateAlarm: (Alarm) -> Unit,
     onMoveAlarmToGroup: (Alarm, Long) -> Unit,
@@ -79,6 +86,7 @@ fun MainAppContent(
     onSetCustomRecordingPath: (String) -> Unit,
     timerRemainingSeconds: Int,
     isTimerRunning: Boolean,
+    isTimerRinging: Boolean,
     timerHours: Int,
     timerMinutes: Int,
     timerSeconds: Int,
@@ -87,6 +95,7 @@ fun MainAppContent(
     onSetTimerSeconds: (Int) -> Unit,
     onStartTimer: (Int) -> Unit,
     onStopTimer: () -> Unit,
+    onDismissTimerRinging: () -> Unit,
     debugLogs: List<String>,
     onStartRecording: () -> Unit,
     onStopRecording: (String) -> String?,
@@ -97,6 +106,7 @@ fun MainAppContent(
     availableVoices: List<Voice> = emptyList(),
     selectedTtsVoice: String = "",
     onSetTtsVoice: (String) -> Unit = {},
+    onScanTtsEngines: () -> Unit = {},
     discoveredDevices: List<Pair<String, String>> = emptyList(),
     onStartDiscovery: () -> Unit = {},
     onStopDiscovery: () -> Unit = {},
@@ -106,7 +116,17 @@ fun MainAppContent(
     updateInfo: AlarmViewModel.UpdateInfo? = null,
     onPerformUpdate: () -> Unit = {},
     downloadProgress: Float = -1f,
-    onDeleteRingtone: (String) -> Unit = {}
+    onDeleteRingtone: (String) -> Unit = {},
+    // 打卡相关参数
+    checkInGroups: List<CheckInGroupEntity> = emptyList(),
+    checkInTasksMap: Map<Long, List<CheckInTaskEntity>> = emptyMap(),
+    onAddCheckInGroup: (String, List<CheckInTaskInput>) -> Unit = { _, _ -> },
+    onDeleteCheckInGroup: (CheckInGroupEntity) -> Unit = {},
+    onUpdateCheckInGroup: (CheckInGroupEntity, List<CheckInTaskInput>) -> Unit = { _, _ -> },
+    onToggleCheckInGroup: (CheckInGroupEntity, Boolean, Boolean) -> Unit = { _, _, _ -> },
+    onDuplicateCheckInGroup: (CheckInGroupEntity) -> Unit = {},
+    onShareCheckInGroup: (CheckInGroupEntity) -> Unit = {},
+    onImportCheckInGroup: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // 当前选中的 tab，0=Alarms, 1=Chimes, 2=WiFi Sync
@@ -141,6 +161,9 @@ fun MainAppContent(
     var showAddAlarmDialog by remember { mutableStateOf(false) }
     var selectedAlarmGroupId by remember { mutableStateOf(-1L) }
     var editingAlarm by remember { mutableStateOf<Alarm?>(null) }
+    // 打卡对话框状态
+    var showAddCheckInDialog by remember { mutableStateOf(false) }
+    var editingCheckInGroup by remember { mutableStateOf<CheckInGroupEntity?>(null) }
 
     // 当用户计划添加或编辑闹钟时，自动触发文件流重载扫描，高频同步手机录音
     LaunchedEffect(showAddAlarmDialog, editingAlarm) {
@@ -194,6 +217,23 @@ fun MainAppContent(
                 )
             )
         },
+        floatingActionButton = {
+            if (currentTab == 0) {
+                FloatingActionButton(
+                    onClick = { showAddGroupDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Group")
+                }
+            } else if (currentTab == 5) {
+                FloatingActionButton(
+                    onClick = { showAddCheckInDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Check-in")
+                }
+            }
+        },
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -231,6 +271,12 @@ fun MainAppContent(
                     icon = { Icon(Icons.Default.Info, contentDescription = "About") },
                     label = { Text(stringResource(R.string.nav_about)) }
                 )
+                NavigationBarItem(
+                    selected = currentTab == 5,
+                    onClick = { currentTab = 5 },
+                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Check-in") },
+                    label = { Text(stringResource(R.string.nav_checkin)) }
+                )
             }
         }
     ) { innerPadding ->
@@ -254,6 +300,7 @@ fun MainAppContent(
                     onToggleGroup = onToggleGroup,
                     onToggleAlarm = onToggleAlarm,
                     onDeleteGroup = onDeleteGroup,
+                    onUpdateGroup = onUpdateGroup,
                     onDeleteAlarm = onDeleteAlarm,
                     onAddAlarmClick = { groupId ->
                         selectedAlarmGroupId = groupId
@@ -288,8 +335,10 @@ fun MainAppContent(
                 2 -> TimerTab(
                     remainingSeconds = timerRemainingSeconds,
                     isRunning = isTimerRunning,
+                    isRinging = isTimerRinging,
                     onStart = onStartTimer,
                     onStop = onStopTimer,
+                    onDismissRinging = onDismissTimerRinging,
                     hours = timerHours,
                     minutes = timerMinutes,
                     seconds = timerSeconds,
@@ -318,6 +367,20 @@ fun MainAppContent(
                     onDeleteRingtone = onDeleteRingtone
                 )
                 4 -> AboutTab()
+                5 -> CheckInTab(
+                    groups = checkInGroups,
+                    tasksMap = checkInTasksMap,
+                    onAddGroup = { showAddCheckInDialog = true },
+                    onEditGroup = { group ->
+                        editingCheckInGroup = group
+                        showAddCheckInDialog = true
+                    },
+                    onDeleteGroup = onDeleteCheckInGroup,
+                    onToggleGroup = onToggleCheckInGroup,
+                    onDuplicateGroup = onDuplicateCheckInGroup,
+                    onShareGroup = onShareCheckInGroup,
+                    onImportGroup = onImportCheckInGroup
+                )
             }
         }
     }
@@ -329,7 +392,8 @@ fun MainAppContent(
             onDismissRequest = { showAddGroupDialog = false },
             modifier = Modifier
                 .fillMaxWidth(0.92f)
-                .wrapContentHeight(),
+                .wrapContentHeight()
+                .imePadding(),
             properties = DialogProperties(usePlatformDefaultWidth = false),
             title = { Text(stringResource(R.string.create_group_title), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
             text = {
@@ -440,6 +504,39 @@ fun MainAppContent(
             onSetAutoUpdate = onSetAutoUpdateEnabled,
             onCheckUpdate = onCheckUpdate,
             onDismiss = { showSettingsDialog = false }
+        )
+    }
+
+    // ── 打卡对话框 ──
+    if (showAddCheckInDialog) {
+        val editingGroup = editingCheckInGroup
+        val editingTasks = if (editingGroup != null) checkInTasksMap[editingGroup.id] ?: emptyList() else emptyList()
+        AddCheckInGroupDialog(
+            existingGroup = editingGroup,
+            existingTasks = editingTasks,
+            customRingtones = customRingtones,
+            systemRingtones = systemRingtones,
+            localRecordings = localRecordings,
+            customRecordingPath = customRecordingPath,
+            isRecording = isRecording,
+            recordingDuration = recordingDuration,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onCancelRecording = onCancelRecording,
+            onImportAudio = onImportAudio,
+            onDismiss = {
+                showAddCheckInDialog = false
+                editingCheckInGroup = null
+            },
+            onConfirm = { name, tasks ->
+                if (editingGroup != null) {
+                    onUpdateCheckInGroup(editingGroup, tasks)
+                } else {
+                    onAddCheckInGroup(name, tasks)
+                }
+                showAddCheckInDialog = false
+                editingCheckInGroup = null
+            }
         )
     }
 

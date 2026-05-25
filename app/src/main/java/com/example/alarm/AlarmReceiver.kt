@@ -68,7 +68,7 @@ class AlarmReceiver : BroadcastReceiver() {
             dbScope.launch {
                 try {
                     val db = AlarmDatabase.getDatabase(context, CoroutineScope(Dispatchers.IO))
-                    val repository = AlarmRepository(db.alarmDao())
+                    val repository = AlarmRepository(db.alarmDao(), db.checkinDao())
                     val chimes = repository.getHourlyChimes()
                     val targetChime = chimes.find { it.hour == nowHour }
 
@@ -119,7 +119,7 @@ class AlarmReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 val db = AlarmDatabase.getDatabase(context, CoroutineScope(Dispatchers.IO))
-                val repository = AlarmRepository(db.alarmDao())
+                val repository = AlarmRepository(db.alarmDao(), db.checkinDao())
                 val groups = repository.getGroupList()
                 val alarms = db.alarmDao().getAllAlarmsFlow() // wait, let's just query list directly
                 val rawAlarms = db.alarmDao().getAllAlarmsFlow() // wait, we can't block. We can collect first element:
@@ -153,7 +153,7 @@ class AlarmReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 val db = AlarmDatabase.getDatabase(context, CoroutineScope(Dispatchers.IO))
-                val repository = AlarmRepository(db.alarmDao())
+                val repository = AlarmRepository(db.alarmDao(), db.checkinDao())
                 val alarm = repository.getAlarmById(alarmId)
                 if (alarm != null) {
                     val groups = repository.getGroupList()

@@ -99,8 +99,8 @@ class WifiSyncServer(
                 handleToggleAlarm(uri, output)
             } else if (method == "POST" && uri == "/upload") {
                 handleRingtoneUpload(socket.getInputStream(), contentLength, contentType, output)
-            } else if (method == "GET" && uri == "/backup") {
-                handleDownloadBackup(output)
+            } else if (method == "GET" && uri.startsWith("/backup")) {
+                handleDownloadBackup(output, uri)
             } else if (method == "POST" && uri == "/restore") {
                 handleRestoreBackup(socket.getInputStream(), contentLength, contentType, output)
             } else {
@@ -580,9 +580,12 @@ class WifiSyncServer(
         sendRedirect(output, "/")
     }
 
-    private fun handleDownloadBackup(output: BufferedOutputStream) {
+    private fun handleDownloadBackup(output: BufferedOutputStream, uri: String = "") {
         try {
-            Log.d(TAG, "Generating backup ZIP for remote client...")
+            val params = getParams(uri)
+            val isChimesOnly = params["type"] == "chimes_only"
+            
+            Log.d(TAG, "Generating backup ZIP (isChimesOnly=$isChimesOnly)...")
             val backupFile = File(context.cacheDir, "alarm_backup.zip")
             
             val db = AlarmDatabase.getDatabase(context, CoroutineScope(Dispatchers.IO))
@@ -590,89 +593,105 @@ class WifiSyncServer(
             val alarms = runBlocking { db.alarmDao().getAllAlarms() }
             val chimes = runBlocking { db.alarmDao().getAllHourlyChimes() }
 
-            Log.d(TAG, "Database info fetched: ${groups.size} groups, ${alarms.size} alarms.")
-
             java.util.zip.ZipOutputStream(java.io.FileOutputStream(backupFile), Charsets.UTF_8).use { zos ->
-                val rootJson = org.json.JSONObject()
-                
-                val groupsJson = org.json.JSONArray()
-                groups.forEach { g ->
-                    groupsJson.put(org.json.JSONObject().apply {
-                        put("id", g.id)
-                        put("name", g.name)
-                        put("isEnabled", g.isEnabled)
-                    })
-                }
-                rootJson.put("groups", groupsJson)
+                if (!isChimesOnly) {
+                    val rootJson = org.json.JSONObject()
+                    
+                    val groupsJson = org.json.JSONArray()
+                    groups.forEach { g ->
+                        groupsJson.put(org.json.JSONObject().apply {
+                            put("id", g.id)
+                            put("name", g.name)
+                            put("isEnabled", g.isEnabled)
+                        })
+                    }
+                    rootJson.put("groups", groupsJson)
 
-                val alarmsJson = org.json.JSONArray()
-                alarms.forEach { a ->
-                    alarmsJson.put(org.json.JSONObject().apply {
-                        put("id", a.id)
-                        put("groupId", a.groupId)
-                        put("hour", a.hour)
-                        put("minute", a.minute)
-                        put("daysOfWeek", a.daysOfWeek)
-                        put("isEnabled", a.isEnabled)
-                        put("label", a.label)
-                        put("ringtonePath", a.ringtonePath)
-                        put("vibrate", a.vibrate)
-                    })
-                }
-                rootJson.put("alarms", alarmsJson)
+                    val alarmsJson = org.json.JSONArray()
+                    alarms.forEach { a ->
+                        alarmsJson.put(org.json.JSONObject().apply {
+                            put("id", a.id)
+                            put("groupId", a.groupId)
+                            put("hour", a.hour)
+                            put("minute", a.minute)
+                            put("daysOfWeek", a.daysOfWeek)
+                            put("isEnabled", a.isEnabled)
+                            put("label", a.label)
+                            put("ringtonePath", a.ringtonePath)
+                            put("vibrate", a.vibrate)
+                        })
+                    }
+                    rootJson.put("alarms", alarmsJson)
 
-                val chimesJson = org.json.JSONArray()
-                chimes.forEach { c ->
-                    chimesJson.put(org.json.JSONObject().apply {
-                        put("hour", c.hour)
-                        put("isEnabled", c.isEnabled)
-                        put("useTts", c.useTts)
-                        put("vibrate", c.vibrate)
-                    })
-                }
-                rootJson.put("chimes", chimesJson)
+                    val chimesJson = org.json.JSONArray()
+                    chimes.forEach { c ->
+                        chimesJson.put(org.json.JSONObject().apply {
+                            put("hour", c.hour)
+                            put("isEnabled", c.isEnabled)
+                            put("useTts", c.useTts)
+                            put("vibrate", c.vibrate)
+                        })
+                    }
+                    rootJson.put("chimes", chimesJson)
 
-                zos.putNextEntry(java.util.zip.ZipEntry("config.json"))
-                zos.write(rootJson.toString().toByteArray(Charsets.UTF_8))
-                zos.closeEntry()
+                    zos.putNextEntry(java.util.zip.ZipEntry("config.json"))
+                    zos.write(rootJson.toString().toByteArray(Charsets.UTF_8))
+                    zos.closeEntry()
 
-                // 遍历所有闹钟，将每个闹钟引用的铃声文件打进包（不论文件在哪个目录）
-                val addedFiles = mutableSetOf<String>()
-                // 核心修复：移除 setLevel(NO_COMPRESSION)，统一使用默认压缩，避免流状态异常导致大文件损坏
-                alarms.forEach { alarm ->
-                    val ringtonePath = alarm.ringtonePath
-                    if (!ringtonePath.isNullOrEmpty()) {
-                        val file = File(ringtonePath)
-                        if (file.isFile && file.exists()) {
-                            val canonicalPath = file.canonicalPath
-                            if (canonicalPath !in addedFiles) {
-                                addedFiles.add(canonicalPath)
-                                val zipName = "ringtones/${file.name}"
-                                val entry = java.util.zip.ZipEntry(zipName)
-                                zos.putNextEntry(entry)
-                                
-                                // 使用较大的缓冲区进行流式拷贝，确保大文件完整性
-                                java.io.FileInputStream(file).use { fis ->
-                                    val buffer = ByteArray(16384)
-                                    var bytesRead: Int
-                                    while (fis.read(buffer).also { bytesRead = it } != -1) {
-                                        zos.write(buffer, 0, bytesRead)
+                    // 遍历所有闹钟，将每个闹钟引用的铃声文件打进包（不论文件在哪个目录）
+                    val addedFiles = mutableSetOf<String>()
+                    alarms.forEach { alarm ->
+                        val ringtonePath = alarm.ringtonePath
+                        if (!ringtonePath.isNullOrEmpty()) {
+                            val file = File(ringtonePath)
+                            if (file.isFile && file.exists()) {
+                                val canonicalPath = file.canonicalPath
+                                if (canonicalPath !in addedFiles) {
+                                    addedFiles.add(canonicalPath)
+                                    val zipName = "ringtones/${file.name}"
+                                    val entry = java.util.zip.ZipEntry(zipName)
+                                    zos.putNextEntry(entry)
+                                    
+                                    java.io.FileInputStream(file).use { fis ->
+                                        val buffer = ByteArray(16384)
+                                        var bytesRead: Int
+                                        while (fis.read(buffer).also { bytesRead = it } != -1) {
+                                            zos.write(buffer, 0, bytesRead)
+                                        }
                                     }
+                                    zos.closeEntry()
                                 }
-                                zos.closeEntry()
-                                Log.d(TAG, "Successfully added to ZIP: ${file.name} (${file.length()} bytes)")
                             }
-                        } else {
-                            Log.w(TAG, "Ringtone file missing or invalid: $ringtonePath")
                         }
                     }
                 }
+
+                // 总是打包报时缓存（如果存在）
+                val chimeDir = File(context.filesDir, "chime_cache")
+                if (chimeDir.exists()) {
+                    Log.d(TAG, "Packing ${chimeDir.listFiles()?.size ?: 0} chime cache files...")
+                    chimeDir.listFiles()?.forEach { file ->
+                        if (file.isFile && file.extension == "wav") {
+                            val zipName = "chimes/${file.name}"
+                            zos.putNextEntry(java.util.zip.ZipEntry(zipName))
+                            java.io.FileInputStream(file).use { fis ->
+                                val buffer = ByteArray(16384)
+                                var bytesRead: Int
+                                while (fis.read(buffer).also { bytesRead = it } != -1) {
+                                    zos.write(buffer, 0, bytesRead)
+                                }
+                            }
+                            zos.closeEntry()
+                        }
+                    }
+                }
+
                 zos.finish()
             }
 
             // 用字节流直接写 HTTP 响应头，避免 PrintWriter 字符流与二进制数据混用
             val header = "HTTP/1.1 200 OK\r\n" +
-                "Content-Type: application/zip\r\n" +
+                "Content-Type: application/octet-stream\r\n" +
                 "Content-Disposition: attachment; filename=\"alarm_backup_${System.currentTimeMillis()}.zip\"\r\n" +
                 "Content-Length: ${backupFile.length()}\r\n" +
                 "Connection: close\r\n" +

@@ -284,25 +284,22 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         }
 
         if (chimeStyle >= 1) {
-            // 钟声模式：播放悦耳钟声，chimeStyle 0=TTS, 1=旋律钟声, 2=西敏寺, 3=清亮上行, 4=梦幻叮咚
-            // 钟声模式用 chimeStyle-1 作为 pattern 索引
+            // 钟声模式
             val bellPattern = (chimeStyle - 1).coerceIn(0, 3)
             playChimeBell(bellPattern)
         } else {
             // TTS 模式
             if (useTts) {
-                // 优先播放预缓存的高质量 24 段报时音频
+                // 优先播放预合成的“内置”语音文件
                 val cachedFile = ChimeAudioPreloader.file(this, hour)
                 if (cachedFile.exists()) {
-                    Log.d(TAG, "播放缓存报时音频：${cachedFile.absolutePath}")
-                    playAudioFile(cachedFile.absolutePath, looping = false)
+                    Log.d(TAG, "正在播放内置报时语音: ${cachedFile.absolutePath}")
+                    playAudioFile(cachedFile.absolutePath)
                 } else {
-                    // 容错：缓存未就绪时回退到实时 TTS
-                    Log.w(TAG, "缓存音频不存在，回退到实时 TTS")
+                    // 兜底：如果文件还没生成好，使用实时合成
                     speak(text)
                 }
             } else {
-                // Play a standard beep sound if TTS is disabled
                 playSingleBeep()
             }
         }

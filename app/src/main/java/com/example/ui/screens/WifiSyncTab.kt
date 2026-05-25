@@ -293,25 +293,25 @@ fun WifiSyncTab(
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
                             onClick = onExport,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.backup_export), fontSize = 13.sp)
+                            Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(R.string.backup_export), fontSize = 12.sp, maxLines = 1)
                         }
                         OutlinedButton(
                             onClick = onImport,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.import_restore), fontSize = 13.sp)
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(R.string.import_restore), fontSize = 12.sp, maxLines = 1)
                         }
                     }
                 }
@@ -388,21 +388,47 @@ fun WifiSyncTab(
         AlertDialog(
             onDismissRequest = { showImportModeDialog = false },
             title = { Text(stringResource(R.string.sync_mode_title)) },
-            text = { Text(stringResource(R.string.sync_mode_desc)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    showImportModeDialog = false
-                    onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.CLEAR)
-                }) {
-                    Text(stringResource(R.string.sync_mode_clear))
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.sync_mode_desc))
+                    
+                    Button(
+                        onClick = {
+                            showImportModeDialog = false
+                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.CLEAR)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text(stringResource(R.string.sync_mode_clear))
+                    }
+
+                    Button(
+                        onClick = {
+                            showImportModeDialog = false
+                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.MERGE)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.sync_mode_merge))
+                    }
+
+                    Button(
+                        onClick = {
+                            showImportModeDialog = false
+                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.ONLY_CHIMES)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Text(stringResource(R.string.sync_mode_chimes))
+                    }
                 }
             },
+            confirmButton = {},
             dismissButton = {
-                TextButton(onClick = {
-                    showImportModeDialog = false
-                    onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.MERGE)
-                }) {
-                    Text(stringResource(R.string.sync_mode_merge))
+                TextButton(onClick = { showImportModeDialog = false }) {
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )

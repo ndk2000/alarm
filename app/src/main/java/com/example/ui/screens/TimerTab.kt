@@ -18,8 +18,10 @@ import com.example.ui.components.WheelDialPicker
 fun TimerTab(
     remainingSeconds: Int,
     isRunning: Boolean,
+    isRinging: Boolean,
     onStart: (Int) -> Unit,
     onStop: () -> Unit,
+    onDismissRinging: () -> Unit,
     hours: Int,
     minutes: Int,
     seconds: Int,
@@ -34,7 +36,32 @@ fun TimerTab(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        if (!isRunning) {
+        if (isRinging) {
+            // ── 计时结束，响铃中 ──
+            Text(
+                stringResource(R.string.timer_done),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "00:00:00",
+                fontSize = 48.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(
+                onClick = onDismissRinging,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(stringResource(R.string.timer_dismiss), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        } else if (!isRunning) {
             Text(stringResource(R.string.set_timer), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
 

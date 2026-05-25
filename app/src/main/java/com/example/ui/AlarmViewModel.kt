@@ -27,6 +27,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.alarm.AlarmScheduler
 import com.example.alarm.AlarmService
 import com.example.db.*
+import com.example.db.CheckInDao
+import com.example.db.CheckInGroupEntity
+import com.example.db.CheckInTaskEntity
+import com.example.ui.dialogs.CheckInTaskInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +52,7 @@ import java.util.UUID
 
 class AlarmViewModel(application: Application) : AndroidViewModel(application), TextToSpeech.OnInitListener {
     private val repository: AlarmRepository
+    private val checkInDao: CheckInDao
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
 
@@ -217,6 +222,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     private val _isTimerRunning = MutableStateFlow(false)
     val isTimerRunning: StateFlow<Boolean> = _isTimerRunning.asStateFlow()
 
+    private val _isTimerRinging = MutableStateFlow(false)
+    val isTimerRinging: StateFlow<Boolean> = _isTimerRinging.asStateFlow()
+
     // 计时器拨盘输入值（跨 Tab 切换保持）
     private val _timerHours = MutableStateFlow(0)
     val timerHours: StateFlow<Int> = _timerHours.asStateFlow()
@@ -257,9 +265,21 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         prefs.edit().putInt("duplicate_offset_minutes", minutes).apply()
 
     }
-    fun setTimerHours(h: Int) { _timerHours.value = h.coerceIn(0, 23) }
-    fun setTimerMinutes(m: Int) { _timerMinutes.value = m.coerceIn(0, 59) }
-    fun setTimerSeconds(s: Int) { _timerSeconds.value = s.coerceIn(0, 59) }
+    fun setTimerHours(h: Int) {
+        _timerHours.value = h.coerceIn(0, 23)
+        val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        prefs.edit().putInt("timer_hours", _timerHours.value).apply()
+    }
+    fun setTimerMinutes(m: Int) {
+        _timerMinutes.value = m.coerceIn(0, 59)
+        val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        prefs.edit().putInt("timer_minutes", _timerMinutes.value).apply()
+    }
+    fun setTimerSeconds(s: Int) {
+        _timerSeconds.value = s.coerceIn(0, 59)
+        val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        prefs.edit().putInt("timer_seconds", _timerSeconds.value).apply()
+    }
 
     // 内部调试日志记录
     private val _debugLogs = MutableStateFlow<List<String>>(listOf("应用启动，调试日志已开启"))
@@ -293,6 +313,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
 
     private val _chimes = MutableStateFlow<List<HourlyChime>>(emptyList())
     val chimes: StateFlow<List<HourlyChime>> = _chimes.asStateFlow()
+
+    private val _checkInGroups = MutableStateFlow<List<CheckInGroupEntity>>(emptyList())
+    val checkInGroups: StateFlow<List<CheckInGroupEntity>> = _checkInGroups.asStateFlow()
+
+    private val _checkInTasksMap = MutableStateFlow<Map<Long, List<CheckInTaskEntity>>>(emptyMap())
+    val checkInTasksMap: StateFlow<Map<Long, List<CheckInTaskEntity>>> = _checkInTasksMap.asStateFlow()
+
+    private val _isLoadingCheckIn = MutableStateFlow(false)
+    val isLoadingCheckIn: StateFlow<Boolean> = _isLoadingCheckIn.asStateFlow()
 
     private val _customRingtones = MutableStateFlow<List<String>>(emptyList())
     val customRingtones: StateFlow<List<String>> = _customRingtones.asStateFlow()
@@ -471,6 +500,11 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
             val defaultDir = android.os.Environment.getExternalStorageDirectory().absolutePath + "/0"
             _customRecordingPath.value = defaultDir
         }
+        // 恢复计时器上次拨盘值
+        _timerHours.value = settings.getInt("timer_hours", 0)
+        _timerMinutes.value = settings.getInt("timer_minutes", 0)
+        _timerSeconds.value = settings.getInt("timer_seconds", 0)
+
         _autoUpdateEnabled.value = settings.getBoolean("auto_update", true)
 
         if (_autoUpdateEnabled.value) {
@@ -495,10 +529,18 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
 
         val db = AlarmDatabase.getDatabase(application, viewModelScope)
         val dao = db.alarmDao()
-        repository = AlarmRepository(dao)
+        repository = AlarmRepository(dao, db.checkinDao())
+        checkInDao = db.checkinDao()
 
         viewModelScope.launch {
             repository.allGroups.collect { _groups.value = it }
+        }
+        viewModelScope.launch {
+            checkInDao.getAllGroupsFlow().collect { _checkInGroups.value = it }
+        }
+        viewModelScope.launch {
+            delay(100) // 等待首次分组数据
+            loadAllCheckInTasks()
         }
         viewModelScope.launch {
             repository.allAlarms.collect { _alarms.value = it }
@@ -509,6 +551,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         loadCustomRingtones()
         loadSystemRingtones()
         loadLocalRecordings() // 在初始化时自动触发读取本地录音机保存的列表
+
+        // 启动后台闹钟监控服务，在状态栏显示闹钟倒计时通知
+        refreshBackgroundMonitor()
     }
 
     // 扫描系统录音机路径，列出所有保存的录音文件，包含小米、华为、OPPO、VIVO等主流机型的深度适配
@@ -884,6 +929,12 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
 
     }
 
+    fun updateGroup(group: AlarmGroup) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateGroup(group)
+        }
+    }
+
     fun addGroup(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.insertGroup(AlarmGroup(name = name, isEnabled = true))
@@ -1096,6 +1147,38 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                     }
                     rootJson.put("chimes", chimesJson)
 
+                    val db = AlarmDatabase.getDatabase(getApplication(), viewModelScope)
+
+                    // ─── 打卡组与打卡事项 ───
+                    val checkInDao = db.checkinDao()
+                    val checkInGroups = checkInDao.getAllGroups()
+                    val checkInGroupsJson = JSONArray()
+                    checkInGroups.forEach { g ->
+                        checkInGroupsJson.put(JSONObject().apply {
+                            put("id", g.id)
+                            put("name", g.name)
+                            put("isEnabled", g.isEnabled)
+                            put("ringtonePath", g.ringtonePath ?: JSONObject.NULL)
+                            put("boundAlarmGroupId", g.boundAlarmGroupId)
+                            put("createdAt", g.createdAt)
+                            // 导出该组下的所有事项
+                            val tasks = checkInDao.getTasksByGroup(g.id)
+                            val tasksJson = JSONArray()
+                            tasks.forEach { t ->
+                                tasksJson.put(JSONObject().apply {
+                                    put("name", t.name)
+                                    put("hour", t.hour)
+                                    put("minute", t.minute)
+                                    put("orderIndex", t.orderIndex)
+                                    put("ringtonePath", t.ringtonePath ?: JSONObject.NULL)
+                                    put("useTts", t.useTts)
+                                })
+                            }
+                            put("tasks", tasksJson)
+                        })
+                    }
+                    rootJson.put("checkInGroups", checkInGroupsJson)
+
                     // Write JSON entry
                     zos.putNextEntry(ZipEntry("config.json"))
                     zos.write(rootJson.toString().toByteArray())
@@ -1119,6 +1202,36 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                             }
                         }
                     }
+                    // 导出打卡组引用的铃声文件
+                    val checkInExportDao = db.checkinDao()
+                    checkInExportDao.getAllGroups().forEach { g ->
+                        listOfNotNull(g.ringtonePath).forEach { path ->
+                            val file = File(path)
+                            if (file.isFile && file.exists()) {
+                                val canonicalKey = file.canonicalPath
+                                if (canonicalKey !in addedExportFiles) {
+                                    addedExportFiles.add(canonicalKey)
+                                    zos.putNextEntry(ZipEntry("ringtones/${file.name}"))
+                                    file.inputStream().use { fis -> fis.copyTo(zos) }
+                                    zos.closeEntry()
+                                }
+                            }
+                        }
+                        checkInExportDao.getTasksByGroup(g.id).forEach { t ->
+                            t.ringtonePath?.let { path ->
+                                val file = File(path)
+                                if (file.isFile && file.exists()) {
+                                    val canonicalKey = file.canonicalPath
+                                    if (canonicalKey !in addedExportFiles) {
+                                        addedExportFiles.add(canonicalKey)
+                                        zos.putNextEntry(ZipEntry("ringtones/${file.name}"))
+                                        file.inputStream().use { fis -> fis.copyTo(zos) }
+                                        zos.closeEntry()
+                                    }
+                                }
+                            }
+                        }
+                    }
                     zos.setLevel(Deflater.DEFAULT_COMPRESSION)
                 }
                 true
@@ -1135,24 +1248,215 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
     }
 
+    // ─── 单个打卡组导出/分享 ───
+
+    suspend fun exportSingleCheckInGroup(
+        group: CheckInGroupEntity,
+        tasks: List<CheckInTaskEntity>,
+        outputStream: OutputStream
+    ): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                ZipOutputStream(outputStream).use { zos ->
+                    val rootJson = JSONObject()
+                    rootJson.put("formatVersion", 1)
+                    rootJson.put("exportType", "checkin_group") // 标记为单打卡组导出
+
+                    val checkInGroupsJson = JSONArray()
+                    checkInGroupsJson.put(JSONObject().apply {
+                        put("name", group.name)
+                        put("isEnabled", group.isEnabled)
+                        put("ringtonePath", group.ringtonePath ?: JSONObject.NULL)
+                        put("createdAt", group.createdAt)
+                        val tasksJson = JSONArray()
+                        tasks.forEach { t ->
+                            tasksJson.put(JSONObject().apply {
+                                put("name", t.name)
+                                put("hour", t.hour)
+                                put("minute", t.minute)
+                                put("orderIndex", t.orderIndex)
+                                put("ringtonePath", t.ringtonePath ?: JSONObject.NULL)
+                                put("useTts", t.useTts)
+                            })
+                        }
+                        put("tasks", tasksJson)
+                    })
+                    rootJson.put("checkInGroups", checkInGroupsJson)
+
+                    zos.putNextEntry(ZipEntry("config.json"))
+                    zos.write(rootJson.toString().toByteArray())
+                    zos.closeEntry()
+
+                    // 打包铃声
+                    zos.setLevel(Deflater.NO_COMPRESSION)
+                    val addedFiles = mutableSetOf<String>()
+                    listOfNotNull(group.ringtonePath).forEach { path ->
+                        val file = File(path)
+                        if (file.isFile && file.exists() && file.canonicalPath !in addedFiles) {
+                            addedFiles.add(file.canonicalPath)
+                            zos.putNextEntry(ZipEntry("ringtones/${file.name}"))
+                            file.inputStream().use { fis -> fis.copyTo(zos) }
+                            zos.closeEntry()
+                        }
+                    }
+                    tasks.forEach { t ->
+                        t.ringtonePath?.let { path ->
+                            val file = File(path)
+                            if (file.isFile && file.exists() && file.canonicalPath !in addedFiles) {
+                                addedFiles.add(file.canonicalPath)
+                                zos.putNextEntry(ZipEntry("ringtones/${file.name}"))
+                                file.inputStream().use { fis -> fis.copyTo(zos) }
+                                zos.closeEntry()
+                            }
+                        }
+                    }
+                    zos.setLevel(Deflater.DEFAULT_COMPRESSION)
+                }
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+    }
+
+    suspend fun importSingleCheckInGroup(inputStream: InputStream): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val path = _customRecordingPath.value
+                if (path.isEmpty()) {
+                    addLog("导入打卡组失败：存储路径为空")
+                    return@withContext false
+                }
+                val ringtonesDir = File(path)
+                if (!ringtonesDir.exists() && !ringtonesDir.mkdirs()) {
+                    addLog("导入失败：无法创建目录")
+                    return@withContext false
+                }
+
+                var configJson: String? = null
+                ZipInputStream(inputStream).use { zis ->
+                    var entry: ZipEntry? = zis.nextEntry
+                    while (entry != null) {
+                        when {
+                            entry.name == "config.json" -> {
+                                configJson = String(zis.readBytes(), Charsets.UTF_8)
+                            }
+                            entry.name.startsWith("ringtones/") -> {
+                                val fileName = entry.name.substringAfter("ringtones/")
+                                if (fileName.isNotEmpty()) {
+                                    File(ringtonesDir, fileName).outputStream().use {
+                                        zis.copyTo(it)
+                                    }
+                                }
+                            }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+
+                configJson?.let { jsonStr ->
+                    val root = JSONObject(jsonStr)
+                    if (!root.has("checkInGroups")) {
+                        addLog("导入失败：未找到打卡组数据")
+                        return@withContext false
+                    }
+
+                    val db = AlarmDatabase.getDatabase(getApplication(), viewModelScope)
+                    val checkInGroupsArr = root.getJSONArray("checkInGroups")
+
+                    for (i in 0 until checkInGroupsArr.length()) {
+                        val g = checkInGroupsArr.getJSONObject(i)
+                        val newId = db.checkinDao().insertGroup(CheckInGroupEntity(
+                            name = g.getString("name"),
+                            isEnabled = g.getBoolean("isEnabled"),
+                            ringtonePath = fixRingtonePath(g, "ringtonePath", ringtonesDir),
+                            boundAlarmGroupId = -1L,
+                            createdAt = g.optLong("createdAt", System.currentTimeMillis())
+                        ))
+
+                        if (g.has("tasks")) {
+                            val tasksArr = g.getJSONArray("tasks")
+                            val tasksToInsert = mutableListOf<CheckInTaskEntity>()
+                            for (j in 0 until tasksArr.length()) {
+                                val t = tasksArr.getJSONObject(j)
+                                tasksToInsert.add(CheckInTaskEntity(
+                                    groupId = newId,
+                                    name = t.getString("name"),
+                                    hour = t.getInt("hour"),
+                                    minute = t.getInt("minute"),
+                                    orderIndex = t.getInt("orderIndex"),
+                                    ringtonePath = fixRingtonePath(t, "ringtonePath", ringtonesDir),
+                                    useTts = t.optBoolean("useTts", false)
+                                ))
+                            }
+                            db.checkinDao().insertTasks(tasksToInsert)
+                        }
+                    }
+
+                    addLog("打卡组导入成功")
+                    loadCustomRingtones()
+                    true
+                } ?: run {
+                    addLog("导入失败：无法解析配置文件")
+                    false
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                addLog("导入打卡组失败: ${e.message}")
+                false
+            }
+        }
+    }
+
+    fun importSingleCheckInGroup(inputStream: InputStream, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val result = importSingleCheckInGroup(inputStream)
+            onResult(result)
+        }
+    }
+
     suspend fun importConfig(inputStream: InputStream): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val ringtonesDir = File(_customRecordingPath.value)
-                if (!ringtonesDir.exists()) ringtonesDir.mkdirs()
+                val path = _customRecordingPath.value
+                if (path.isEmpty()) {
+                    addLog("导入失败：存储路径为空")
+                    return@withContext false
+                }
+                val ringtonesDir = File(path)
+                if (!ringtonesDir.exists()) {
+                    if (!ringtonesDir.mkdirs()) {
+                        addLog("导入失败：无法创建目录 $path，请检查存储权限")
+                        return@withContext false
+                    }
+                }
 
                 var configJson: String? = null
 
                 ZipInputStream(inputStream).use { zis ->
                     var entry: ZipEntry? = zis.nextEntry
                     while (entry != null) {
-                        if (entry.name == "config.json") {
-                            configJson = zis.bufferedReader().readText()
-                        } else if (entry.name.startsWith("ringtones/")) {
-                            val fileName = entry.name.substringAfter("ringtones/")
-                            if (fileName.isNotEmpty()) {
-                                File(ringtonesDir, fileName).outputStream().use { fos ->
-                                    zis.copyTo(fos)
+                        when {
+                            entry.name == "config.json" -> {
+                                // 核心修复：不要使用 bufferedReader().readText()，因为它会关闭整个 zis 流
+                                val bytes = zis.readBytes()
+                                configJson = String(bytes, Charsets.UTF_8)
+                                addLog("读取到 config.json (${bytes.size} bytes)")
+                            }
+                            entry.name.startsWith("ringtones/") -> {
+                                val fileName = entry.name.substringAfter("ringtones/")
+                                if (fileName.isNotEmpty()) {
+                                    val destFile = File(ringtonesDir, fileName)
+                                    try {
+                                        destFile.outputStream().use { fos ->
+                                            zis.copyTo(fos)
+                                        }
+                                        addLog("已解压铃声: $fileName")
+                                    } catch (e: Exception) {
+                                        addLog("解压铃声失败 $fileName: ${e.message}")
+                                    }
                                 }
                             }
                         }
@@ -1190,13 +1494,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                         val newGroupId = idMap[oldGroupId] ?: continue
                         
                         // Fix ringtonePath if it was a local app path
-                        var ringtonePath: String? = if (a.isNull("ringtonePath")) null else a.getString("ringtonePath")
-                        if (ringtonePath != null && (ringtonePath.contains("/files/custom_ringtones/") || ringtonePath.contains("/0/"))) {
-                            val fileName = ringtonePath.substringAfterLast("/")
-                            ringtonePath = File(ringtonesDir, fileName).absolutePath
-                        } else if (ringtonePath == "null") {
-                            ringtonePath = null
-                        }
+                        val ringtonePath = fixRingtonePath(a, "ringtonePath", ringtonesDir)
 
                         db.alarmDao().insertAlarm(Alarm(
                             groupId = newGroupId,
@@ -1222,6 +1520,48 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                         ))
                     }
 
+                    // ─── 导入打卡组与打卡事项 ───
+                    if (root.has("checkInGroups")) {
+                        // 清空旧的打卡数据
+                        val oldCheckInGroups = db.checkinDao().getAllGroups()
+                        oldCheckInGroups.forEach { db.checkinDao().deleteGroup(it) }
+
+                        val checkInGroupsArr = root.getJSONArray("checkInGroups")
+                        val checkInGroupIdMap = mutableMapOf<Long, Long>() // oldId -> newId
+                        for (i in 0 until checkInGroupsArr.length()) {
+                            val g = checkInGroupsArr.getJSONObject(i)
+                            val oldId = g.getLong("id")
+
+                            val newId = db.checkinDao().insertGroup(CheckInGroupEntity(
+                                name = g.getString("name"),
+                                isEnabled = g.getBoolean("isEnabled"),
+                                ringtonePath = fixRingtonePath(g, "ringtonePath", ringtonesDir),
+                                boundAlarmGroupId = -1L, // 导入时不绑定闹钟组
+                                createdAt = g.optLong("createdAt", System.currentTimeMillis())
+                            ))
+                            checkInGroupIdMap[oldId] = newId
+
+                            // 导入该组下的事项
+                            if (g.has("tasks")) {
+                                val tasksArr = g.getJSONArray("tasks")
+                                val tasksToInsert = mutableListOf<CheckInTaskEntity>()
+                                for (j in 0 until tasksArr.length()) {
+                                    val t = tasksArr.getJSONObject(j)
+                                    tasksToInsert.add(CheckInTaskEntity(
+                                        groupId = newId,
+                                        name = t.getString("name"),
+                                        hour = t.getInt("hour"),
+                                        minute = t.getInt("minute"),
+                                        orderIndex = t.getInt("orderIndex"),
+                                        ringtonePath = fixRingtonePath(t, "ringtonePath", ringtonesDir),
+                                        useTts = t.optBoolean("useTts", false)
+                                    ))
+                                }
+                                db.checkinDao().insertTasks(tasksToInsert)
+                            }
+                        }
+                    }
+
                     // Refresh all alarms in AlarmManager
                     val allAlarms = db.alarmDao().getAllAlarms()
                     val allGroups = db.alarmDao().getAllGroups()
@@ -1238,6 +1578,20 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 e.printStackTrace()
                 false
             }
+        }
+    }
+
+    /**
+     * 导入 JSON 对象中的铃声路径，修正为解压后的本地路径
+     */
+    private fun fixRingtonePath(obj: org.json.JSONObject, key: String, ringtonesDir: File): String? {
+        val raw = if (obj.isNull(key)) null else obj.getString(key)
+        if (raw == null || raw == "null") return null
+        return if (raw.contains("/files/custom_ringtones/") || raw.contains("/0/")) {
+            val fileName = raw.substringAfterLast("/")
+            File(ringtonesDir, fileName).absolutePath
+        } else {
+            raw
         }
     }
 
@@ -1322,14 +1676,17 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     }
 
     // 扫描系统中所有可用的 TTS 引擎
-    private fun scanTtsEngines() {
+    fun scanTtsEngines() {
         try {
-            val enginesList = tts?.engines ?: emptyList()
+            // 修复：不要直接使用成员变量 tts（可能尚未初始化），而是创建一个临时实例来获取所有引擎
+            val tempTts = TextToSpeech(getApplication(), null)
+            val enginesList = tempTts.engines
             _availableTtsEngines.value = enginesList
             addLog("扫描到 ${enginesList.size} 个 TTS 引擎")
             enginesList.forEach { engine ->
                 addLog("  TTS 引擎: ${engine.label} (${engine.name})")
             }
+            tempTts.shutdown()
         } catch (e: Exception) {
             addLog("扫描 TTS 引擎出错: ${e.message}")
         }
@@ -1425,13 +1782,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
             getApplication<Application>().startService(intent)
         }
 
-        // 本地协程仅用于 UI 更新，不调用 onTimerFinished()
+        // 本地协程仅用于 UI 更新
         timerJobInstance = viewModelScope.launch {
             while (_timerRemainingSeconds.value > 0) {
                 delay(1000)
                 _timerRemainingSeconds.value -= 1
             }
+            // 倒计时结束 → 进入响铃状态，UI 显示停止响铃按钮
             _isTimerRunning.value = false
+            _isTimerRinging.value = true
         }
     }
 
@@ -1439,11 +1798,30 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         timerJobInstance?.cancel()
         timerJobInstance = null
         _isTimerRunning.value = false
+        _isTimerRinging.value = false
         _timerRemainingSeconds.value = 0
 
         // 通知 AlarmService 停止倒计时
         val intent = Intent(getApplication(), AlarmService::class.java).apply {
             action = "STOP_COUNTDOWN"
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getApplication<Application>().startForegroundService(intent)
+        } else {
+            getApplication<Application>().startService(intent)
+        }
+    }
+
+    fun dismissTimerRinging() {
+        // 停止响铃并重置所有计时器状态
+        timerJobInstance?.cancel()
+        timerJobInstance = null
+        _isTimerRunning.value = false
+        _isTimerRinging.value = false
+        _timerRemainingSeconds.value = 0
+
+        val intent = Intent(getApplication(), AlarmService::class.java).apply {
+            action = "STOP_RINGING"
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getApplication<Application>().startForegroundService(intent)
@@ -1470,5 +1848,197 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         super.onCleared()
         tts?.stop()
         tts?.shutdown()
+    }
+
+    // ══════════════════════════════════════════
+    // 打卡任务
+    // ══════════════════════════════════════════
+
+    private suspend fun loadCheckInTasksForGroup(groupId: Long): List<CheckInTaskEntity> {
+        return checkInDao.getTasksByGroup(groupId)
+    }
+
+    fun loadAllCheckInTasks() {
+        viewModelScope.launch {
+            _isLoadingCheckIn.value = true
+            val allGroups = checkInDao.getAllGroups()
+            val map = mutableMapOf<Long, List<CheckInTaskEntity>>()
+            for (g in allGroups) {
+                map[g.id] = checkInDao.getTasksByGroup(g.id)
+            }
+            _checkInTasksMap.value = map
+            _isLoadingCheckIn.value = false
+        }
+    }
+
+    fun addCheckInGroup(name: String, tasks: List<CheckInTaskInput>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val groupId = checkInDao.insertGroup(
+                CheckInGroupEntity(name = name, isEnabled = false)
+            )
+            val entities = tasks.mapIndexed { i, t ->
+                CheckInTaskEntity(
+                    groupId = groupId,
+                    name = t.name,
+                    hour = t.hour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
+                    minute = t.minute.toIntOrNull()?.coerceIn(0, 59) ?: 0,
+                    orderIndex = i,
+                    ringtonePath = t.ringtonePath,
+                    useTts = t.useTts
+                )
+            }
+            checkInDao.insertTasks(entities)
+            loadAllCheckInTasks()
+        }
+    }
+
+    fun updateCheckInGroup(group: CheckInGroupEntity, tasks: List<CheckInTaskInput>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            checkInDao.updateGroup(group)
+            checkInDao.deleteTasksByGroup(group.id)
+            val entities = tasks.mapIndexed { i, t ->
+                CheckInTaskEntity(
+                    groupId = group.id,
+                    name = t.name,
+                    hour = t.hour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
+                    minute = t.minute.toIntOrNull()?.coerceIn(0, 59) ?: 0,
+                    orderIndex = i,
+                    ringtonePath = t.ringtonePath,
+                    useTts = t.useTts
+                )
+            }
+            checkInDao.insertTasks(entities)
+            // 如果组已启用，更新绑定的闹钟
+            if (group.isEnabled && group.boundAlarmGroupId != -1L) {
+                rebuildBoundAlarms(group, entities)
+            }
+            loadAllCheckInTasks()
+        }
+    }
+
+    fun duplicateCheckInGroup(group: CheckInGroupEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val offsetHours = _duplicateOffsetHours.value
+            val offsetMinutes = _duplicateOffsetMinutes.value
+            val tasks = checkInDao.getTasksByGroup(group.id)
+            // 创建副本组
+            val newGroupId = checkInDao.insertGroup(
+                group.copy(id = 0, isEnabled = false, boundAlarmGroupId = -1L,
+                    createdAt = System.currentTimeMillis())
+            )
+            // 复制任务，时间加上偏移
+            val newTasks = tasks.map { task ->
+                var totalMin = task.hour * 60 + task.minute + offsetHours * 60 + offsetMinutes
+                if (totalMin >= 24 * 60) totalMin -= 24 * 60
+                task.copy(
+                    id = 0,
+                    groupId = newGroupId,
+                    hour = totalMin / 60,
+                    minute = totalMin % 60
+                )
+            }
+            checkInDao.insertTasks(newTasks)
+            loadAllCheckInTasks()
+        }
+    }
+
+    fun deleteCheckInGroup(group: CheckInGroupEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 如果有绑定的闹钟组，一并删除
+            if (group.boundAlarmGroupId != -1L) {
+                val boundGroup = _groups.value.find { it.id == group.boundAlarmGroupId }
+                if (boundGroup != null) {
+                    repository.getAlarmsByGroup(boundGroup.id).forEach {
+                        AlarmScheduler.cancelAlarm(getApplication(), it.id)
+                    }
+                    repository.deleteGroup(boundGroup)
+                }
+            }
+            checkInDao.deleteGroup(group)
+            loadAllCheckInTasks()
+            refreshBackgroundMonitor()
+        }
+    }
+
+    fun toggleCheckInGroup(group: CheckInGroupEntity, enable: Boolean, replaceExisting: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val tasks = checkInDao.getTasksByGroup(group.id)
+            if (enable) {
+                val groupName = group.name
+                // 替换：删除全部已有闹钟组和闹钟
+                if (replaceExisting) {
+                    val allGroups = repository.getGroupList()
+                    for (g in allGroups) {
+                        repository.getAlarmsByGroup(g.id).forEach {
+                            AlarmScheduler.cancelAlarm(getApplication(), it.id)
+                        }
+                        repository.deleteGroup(g)
+                    }
+                }
+                // 新建一个 AlarmGroup
+                val alarmGroupId = repository.insertGroup(
+                    AlarmGroup(name = groupName, isEnabled = true)
+                )
+                // 为每个打卡任务创建闹钟（默认每天）
+                for (task in tasks) {
+                    val ringtone = task.ringtonePath ?: group.ringtonePath
+                    val alarm = Alarm(
+                        groupId = alarmGroupId,
+                        hour = task.hour,
+                        minute = task.minute,
+                        daysOfWeek = "1,2,3,4,5,6,7",
+                        isEnabled = true,
+                        label = task.name,
+                        ringtonePath = ringtone,
+                        vibrate = true
+                    )
+                    val insertId = repository.insertAlarm(alarm)
+                    val finalAlarm = alarm.copy(id = insertId)
+                    val parentGroup = _groups.value.find { it.id == alarmGroupId }
+                    AlarmScheduler.scheduleAlarm(getApplication(), finalAlarm, parentGroup)
+                }
+                // 更新打卡组，绑定闹钟组 ID
+                checkInDao.updateGroup(group.copy(isEnabled = true, boundAlarmGroupId = alarmGroupId))
+            } else {
+                // 停用：删除绑定的闹钟组
+                if (group.boundAlarmGroupId != -1L) {
+                    val boundGroup = _groups.value.find { it.id == group.boundAlarmGroupId }
+                    if (boundGroup != null) {
+                        repository.getAlarmsByGroup(boundGroup.id).forEach {
+                            AlarmScheduler.cancelAlarm(getApplication(), it.id)
+                        }
+                        repository.deleteGroup(boundGroup)
+                    }
+                }
+                checkInDao.updateGroup(group.copy(isEnabled = false, boundAlarmGroupId = -1L))
+            }
+            loadAllCheckInTasks()
+            refreshBackgroundMonitor()
+        }
+    }
+
+    private suspend fun rebuildBoundAlarms(group: CheckInGroupEntity, tasks: List<CheckInTaskEntity>) {
+        // 删除旧的闹钟
+        repository.getAlarmsByGroup(group.boundAlarmGroupId).forEach {
+            AlarmScheduler.cancelAlarm(getApplication(), it.id)
+            repository.deleteAlarm(it)
+        }
+        // 重新创建
+        for (task in tasks) {
+            val ringtone = task.ringtonePath ?: group.ringtonePath
+            val alarm = Alarm(
+                groupId = group.boundAlarmGroupId,
+                hour = task.hour,
+                minute = task.minute,
+                daysOfWeek = "1,2,3,4,5,6,7",
+                isEnabled = true,
+                label = task.name,
+                ringtonePath = ringtone,
+                vibrate = true
+            )
+            val insertId = repository.insertAlarm(alarm)
+            val finalAlarm = alarm.copy(id = insertId)
+            AlarmScheduler.scheduleAlarm(getApplication(), finalAlarm, null)
+        }
     }
 }

@@ -6,6 +6,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +30,7 @@ import com.example.R
 import com.example.db.Alarm
 import com.example.ui.components.WheelDialPicker
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddAlarmDialog(
     editingAlarm: Alarm? = null,
@@ -201,8 +205,12 @@ fun AddAlarmDialog(
                 item {
                     // 闹铃文本标签 — 键盘弹起时自动滚动至此
                     var isFocused by remember { mutableStateOf(false) }
-                    LaunchedEffect(isFocused) {
-                        if (isFocused) listState.animateScrollToItem(textFieldIndex)
+                    val isImeVisible = WindowInsets.isImeVisible
+                    
+                    LaunchedEffect(isFocused, isImeVisible) {
+                        if (isFocused && isImeVisible) {
+                            listState.animateScrollToItem(textFieldIndex)
+                        }
                     }
                     OutlinedTextField(
                         value = label,

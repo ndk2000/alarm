@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -40,6 +43,7 @@ fun AlarmsTab(
     onToggleGroup: (AlarmGroup, Boolean) -> Unit,
     onToggleAlarm: (Alarm, Boolean) -> Unit,
     onDeleteGroup: (AlarmGroup) -> Unit,
+    onUpdateGroup: (AlarmGroup) -> Unit,
     onDeleteAlarm: (Alarm) -> Unit,
     onDuplicateAlarm: (Alarm) -> Unit,
     onAddAlarmClick: (Long) -> Unit,
@@ -48,6 +52,7 @@ fun AlarmsTab(
 ) {
     var alarmToDelete by remember { mutableStateOf<Alarm?>(null) }
     var groupToDelete by remember { mutableStateOf<AlarmGroup?>(null) }
+    var groupToEdit by remember { mutableStateOf<AlarmGroup?>(null) }
     var draggedAlarm by remember { mutableStateOf<Alarm?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragStartPoint by remember { mutableStateOf(Offset.Zero) }
@@ -176,7 +181,11 @@ fun AlarmsTab(
                                         )
                                     }
                                     
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { groupToEdit = group }
+                                    ) {
                                         Text(
                                             text = group.name,
                                             fontWeight = FontWeight.Bold,
@@ -221,14 +230,104 @@ fun AlarmsTab(
                                             )
                                         } else {
                                             groupAlarms.forEach { alarm ->
-                                                AlarmItem(
-                                                    alarm = alarm,
-                                                    groupEnabled = group.isEnabled,
-                                                    onToggle = onToggleAlarm,
-                                                    onDelete = { alarmToDelete = it },
-                                                    onDuplicate = onDuplicateAlarm,
-                                                    onEdit = onEditAlarm
-                                                )
+                                                var myGlobalPosition by remember { mutableStateOf(Offset.Zero) }
+
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .onGloballyPositioned { coordinates ->
+                                                            myGlobalPosition = coordinates.positionInWindow()
+                                                        }
+                                                        .graphicsLayer(alpha = if (draggedAlarm?.id == alarm.id) 0.3f else 1f)
+                                                        .padding(vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    // Draggable Handle Icon
+                                                    Icon(
+                                                        imageVector = Icons.Default.Menu,
+                                                        contentDescription = "拖拽移动分组",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                        modifier = Modifier
+                                                            .padding(end = 4.dp)
+                                                            .size(24.dp)
+                                                            .pointerInput(alarm) {
+                                                                detectDragGesturesAfterLongPress(
+                                                                    onDragStart = { startOffset ->
+                                                                        draggedAlarm = alarm
+                                                                        dragStartPoint = startOffset
+                                                                        dragOffset = Offset.Zero
+                                                                        itemGlobalPosition = myGlobalPosition
+                                                                        originalAlarmPositionInParent = myGlobalPosition - parentOffset
+                                                                    },
+                                                                    onDrag = { change, dragAmount ->
+                                                                        change.consume()
+                                                                        dragOffset += dragAmount
+                                                                    },
+                                                                    onDragEnd = {
+                                                                        val globalPos = itemGlobalPosition + dragStartPoint + dragOffset
+                                                                        val targetGroupId = groupBounds.entries.find { it.value.contains(globalPos) }?.key
+                                                                        if (targetGroupId != null && targetGroupId != alarm.groupId) {
+                                                                            onMoveAlarmToGroup(alarm, targetGroupId)
+                                                                        }
+                                                                        draggedAlarm = null
+                                                                        dragOffset = Offset.Zero
+                                                                    },
+                                                                    onDragCancel = {
+                                                                        draggedAlarm = null
+                                                                        dragOffset = Offset.Zero
+                                                                    }
+                                                                )
+                                                            }
+                                                    )
+
+                                                    Box(modifier = Modifier.weight(1f)) {
+                                                        val dismissState = rememberSwipeToDismissBoxState(
+                                                            confirmValueChange = {
+                                                                if (it == SwipeToDismissBoxValue.StartToEnd) {
+                                                                    alarmToDelete = alarm
+                                                                    false
+                                                                } else false
+                                                            }
+                                                        )
+
+                                                        SwipeToDismissBox(
+                                                            state = dismissState,
+                                                            enableDismissFromStartToEnd = true,
+                                                            enableDismissFromEndToStart = false,
+                                                            backgroundContent = {
+                                                                val color by animateColorAsState(
+                                                                    when (dismissState.targetValue) {
+                                                                        SwipeToDismissBoxValue.StartToEnd -> Color.Red.copy(alpha = 0.5f)
+                                                                        else -> Color.Transparent
+                                                                    }, label = ""
+                                                                )
+                                                                Box(
+                                                                    Modifier
+                                                                        .fillMaxSize()
+                                                                        .clip(RoundedCornerShape(12.dp))
+                                                                        .background(color)
+                                                                        .padding(horizontal = 20.dp),
+                                                                    contentAlignment = Alignment.CenterStart
+                                                                ) {
+                                                                    Icon(
+                                                                        Icons.Default.Delete,
+                                                                        contentDescription = "Delete",
+                                                                        tint = Color.White
+                                                                    )
+                                                                }
+                                                            }
+                                                        ) {
+                                                            AlarmItem(
+                                                                alarm = alarm,
+                                                                groupEnabled = group.isEnabled,
+                                                                onToggle = onToggleAlarm,
+                                                                onDelete = { alarmToDelete = it },
+                                                                onDuplicate = onDuplicateAlarm,
+                                                                onEdit = onEditAlarm
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
 
@@ -368,6 +467,46 @@ fun AlarmsTab(
             },
             dismissButton = {
                 TextButton(onClick = { groupToDelete = null }) {
+                    Text("取消", color = Color.Gray)
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    }
+
+    if (groupToEdit != null) {
+        var newName by remember { mutableStateOf(groupToEdit!!.name) }
+        AlertDialog(
+            onDismissRequest = { groupToEdit = null },
+            title = { Text("修改分组名称", color = MaterialTheme.colorScheme.onSurface) },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("分组名称", color = Color(0xFF8E9099)) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newName.isNotBlank()) {
+                            onUpdateGroup(groupToEdit!!.copy(name = newName))
+                            groupToEdit = null
+                        }
+                    }
+                ) {
+                    Text("保存", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { groupToEdit = null }) {
                     Text("取消", color = Color.Gray)
                 }
             },

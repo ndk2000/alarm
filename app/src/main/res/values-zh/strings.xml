@@ -11,6 +11,26 @@
     <string name="nav_timer">计时器</string>
     <string name="nav_sync">同步</string>
     <string name="nav_about">关于</string>
+    <string name="nav_checkin">打卡</string>
+
+    <!-- 打卡任务 -->
+    <string name="checkin_title">打卡任务</string>
+    <string name="checkin_no_groups">暂无打卡组，点 + 创建</string>
+    <string name="checkin_new_group">新建打卡组</string>
+    <string name="checkin_edit_group">编辑打卡组</string>
+    <string name="checkin_group_name_label">组名称</string>
+    <string name="checkin_group_name_placeholder">如：晨间流程、工作、学习...</string>
+    <string name="checkin_tasks">打卡事项</string>
+    <string name="checkin_add_task">添加事项</string>
+    <string name="checkin_task_name_hint">如：起床、喝水、运动...</string>
+    <string name="checkin_remind_at">提醒时间</string>
+    <string name="checkin_task_unit">个任务</string>
+    <string name="checkin_apply_title">应用到闹钟</string>
+    <string name="checkin_apply_desc">「%s」的任务将创建为闹钟</string>
+    <string name="checkin_apply_add">新增到现有闹钟</string>
+    <string name="checkin_apply_replace">替换全部闹钟</string>
+    <string name="checkin_delete_title">删除打卡组？</string>
+    <string name="checkin_delete_desc">确定删除「%s」吗？</string>
 
     <!-- 闹钟列表 -->
     <string name="no_label">无标签</string>
@@ -22,6 +42,7 @@
     <string name="confirm_delete_title">确认删除</string>
     <string name="confirm_delete_text">确定要删除这个闹钟吗？此操作不可撤销。</string>
     <string name="delete">删除</string>
+    <string name="save">保存</string>
     <string name="cancel">取消</string>
 
     <!-- 新建分组对话框 -->
@@ -94,6 +115,7 @@
     <string name="remote_sync_desc">使用说明：在另一台手机上开启「Wi-Fi 同步」开关，将本机 IP 输入到目标手机中，点击同步即可将对方的所有闹钟配置和铃声拉取到本机。⚠️ 同步会覆盖本地所有闹钟数据！</string>
     <string name="local_backup">本地备份与恢复</string>
     <string name="backup_export">备份导出</string>
+    <string name="share_config">分享配置</string>
     <string name="import_restore">导入恢复</string>
     <string name="uploaded_ringtones">🎵 已上传铃声（%d）</string>
     <string name="no_uploaded_ringtones">暂无已上传的自定义铃声，请使用 WiFi 控制台上传</string>
@@ -109,6 +131,16 @@
     <string name="theme_sunset">暖阳</string>
     <string name="done">完成</string>
     <string name="minutes_abbr">分</string>
+
+    <!-- 电池优化白名单 -->
+    <string name="alarm_reliability">⏰ 闹钟可靠性</string>
+    <string name="battery_opt_desc">部分手机（小米/华为/OPPO等）的省电策略可能会延迟闹钟响铃。请将本应用加入系统白名单。</string>
+    <string name="disable_battery_opt">关闭电池优化</string>
+    <string name="disable_battery_opt_tip">打开系统设置，允许应用后台运行</string>
+    <string name="battery_opt_already_disabled">✅ 本应用已关闭电池优化</string>
+    <string name="autostart_title">开启自启动</string>
+    <string name="autostart_tip">允许应用在系统启动或被杀死后自动重启</string>
+    <string name="manufacturer_guide_title">各品牌手机设置指引</string>
 
     <!-- 报时选项卡 -->
     <string name="hourly_chime">🛎️ 24小时报时</string>
@@ -147,6 +179,8 @@
     <string name="seconds_unit">秒</string>
     <string name="start_timer">开始计时</string>
     <string name="stop_timer">停止计时</string>
+    <string name="timer_done">⏰ 计时结束！</string>
+    <string name="timer_dismiss">关闭</string>
 
     <!-- 关于选项卡 -->
     <string name="about_title">关于软件</string>
@@ -190,8 +224,51 @@
     <string name="preset_weekends">周末</string>
     <string name="preset_once">仅一次</string>
     <string name="preset_custom">自定义</string>
+    <string name="expand">展开</string>
+    <string name="collapse">收起</string>
     <string name="sync_mode_title">选择同步模式</string>
     <string name="sync_mode_desc">同步数据时如何处理本地已有的闹钟？</string>
     <string name="sync_mode_clear">清空并替换</string>
     <string name="sync_mode_merge">合并</string>
+    <string name="sync_mode_chimes">仅同步报时语音</string>
+    <!-- 关于 / 版本 -->
+    <string name="about_section">关于</string>
+    <string name="version_format">版本 %s</string>
+    <string name="build_date_format">构建日期 %s</string>
+    <string name="view_changelog">查看更新说明</string>
+    <string name="hide_changelog">收起更新说明</string>
+    <string name="changelog_content">📦 v1.2.0 (2025-04-05)
+
+✨ 新功能:
+• 打卡任务系统：自定义事项列表与提醒时间
+• 批量闹钟生成：一键追加或替换现有闹钟
+• 电池优化白名单引导，提高闹钟可靠性
+• 各品牌手机设置指引（小米/华为/OPPO/vivo等）
+
+🔧 改进:
+• 修复闹钟时间计算（不再延迟 20 分钟）
+• 设置页面重构，新增闹钟可靠性专区
+• 底部导航新增「打卡」Tab
+
+---
+
+📦 v1.1.0 (2025-04-04)
+
+• 自定义录音路径
+• 闹钟复制偏移设置
+• WiFi 局域网同步功能
+• 24 小时报时（TTS 语音 / 悦耳钟声）
+• 多 TTS 引擎与语音选择
+
+---
+
+📦 v1.0.0 (2025-04-01)
+
+• 基础闹钟功能（创建/编辑/删除/分组）
+• 拖拽分组排序
+• 自定义铃声（系统 + 本地录音）
+• 振动开关
+• 主题切换（暗夜/森林/暖阳）
+• 中英文双语支持
+• 数据导出导入备份（JSON + 音频文件）</string>
 </resources>

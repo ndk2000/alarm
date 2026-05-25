@@ -12,12 +12,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import com.example.BuildConfig
 import com.example.R
+import com.example.util.BatteryOptimizationGuide
 import androidx.compose.ui.draw.clip
 
 @Composable
@@ -41,15 +45,16 @@ fun AppSettingsDialog(
     
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.fillMaxWidth(0.92f).imePadding(),
+        modifier = Modifier.fillMaxWidth(0.92f),
         properties = DialogProperties(usePlatformDefaultWidth = false),
         title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
         text = {
             val scrollState = rememberScrollState()
             Column(
                 modifier = Modifier
-                    .heightIn(max = 500.dp)
-                    .verticalScroll(scrollState),
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(scrollState)
+                    .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // 语言
@@ -169,6 +174,153 @@ fun AppSettingsDialog(
                         ) {
                             Text(name, color = textColor, fontSize = 12.sp, fontWeight = if(theme == i) FontWeight.Bold else FontWeight.Normal)
                         }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // ── 电池优化白名单引导 ──
+                val context = LocalContext.current
+                val batteryDisabled = remember { BatteryOptimizationGuide.isBatteryOptimizationDisabled(context) }
+
+                Text(
+                    stringResource(R.string.alarm_reliability),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    stringResource(R.string.battery_opt_desc),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 关闭电池优化
+                Button(
+                    onClick = { BatteryOptimizationGuide.openBatteryOptimizationSettings(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (batteryDisabled)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        else
+                            MaterialTheme.colorScheme.primary,
+                        contentColor = if (batteryDisabled)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else
+                            MaterialTheme.colorScheme.onPrimary
+                    ),
+                    enabled = !batteryDisabled
+                ) {
+                    Text(
+                        if (batteryDisabled)
+                            stringResource(R.string.battery_opt_already_disabled)
+                        else
+                            stringResource(R.string.disable_battery_opt),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    stringResource(R.string.disable_battery_opt_tip),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 自启动
+                Button(
+                    onClick = { BatteryOptimizationGuide.openAutostartSettings(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary
+                    )
+                ) {
+                    Text(
+                        stringResource(R.string.autostart_title),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    stringResource(R.string.autostart_tip),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 各品牌指引（可点击展开）
+                var showManufacturerGuide by remember { mutableStateOf(false) }
+                TextButton(onClick = { showManufacturerGuide = !showManufacturerGuide }) {
+                    Text(
+                        stringResource(R.string.manufacturer_guide_title),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (showManufacturerGuide) {
+                    val tip = remember { BatteryOptimizationGuide.getManufacturerTip() }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            text = tip,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(12.dp),
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // ── 关于 / 版本信息 ──
+                Text(
+                    stringResource(R.string.about_section),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    "${stringResource(R.string.version_format, BuildConfig.VERSION_NAME)} (${stringResource(R.string.build_date_format, BuildConfig.BUILD_DATE)})",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+
+                var showChangelog by remember { mutableStateOf(false) }
+                TextButton(onClick = { showChangelog = !showChangelog }) {
+                    Text(
+                        if (showChangelog) stringResource(R.string.hide_changelog) else stringResource(R.string.view_changelog),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (showChangelog) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.changelog_content),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(12.dp),
+                            lineHeight = 18.sp
+                        )
                     }
                 }
             }

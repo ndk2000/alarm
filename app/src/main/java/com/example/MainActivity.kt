@@ -16,6 +16,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.content.Intent
+import android.util.Log
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import kotlinx.coroutines.launch
 // import kotlinx.coroutines.flow.drop
@@ -76,6 +77,7 @@ import com.example.alarm.AlarmScheduler
 import com.example.db.Alarm
 import com.example.db.AlarmGroup
 import com.example.db.HourlyChime
+import com.example.db.CheckInGroupEntity
 import com.example.ui.AlarmViewModel
 import com.example.ui.theme.Theme
 import com.example.ui.components.AlarmItem
@@ -121,6 +123,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val ShareDebugTag = "ShareDebug"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -193,6 +196,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
     val customRecordingPath by viewModel.customRecordingPath.collectAsState()
     val timerRemainingSeconds by viewModel.timerRemainingSeconds.collectAsState()
     val isTimerRunning by viewModel.isTimerRunning.collectAsState()
+    val isTimerRinging by viewModel.isTimerRinging.collectAsState()
     val timerHours by viewModel.timerHours.collectAsState()
     val timerMinutes by viewModel.timerMinutes.collectAsState()
     val timerSeconds by viewModel.timerSeconds.collectAsState()
@@ -200,7 +204,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
     val scope = rememberCoroutineScope()
 
     val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/zip")
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
         uri?.let {
             scope.launch {
@@ -245,6 +249,141 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         }
     }
 
+    val importCheckInGroupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                try {
+                    context.contentResolver.openInputStream(it)?.use { isStream ->
+                        viewModel.importSingleCheckInGroup(isStream) { success ->
+                            if (success) {
+                                viewModel.loadCustomRingtones()
+                                viewModel.loadLocalRecordings()
+                                Toast.makeText(context, context.getString(R.string.import_success), Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(context, context.getString(R.string.import_failed), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    Toast.makeText(context, context.getString(R.string.import_error, e.message), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val onShareCheckInGroup: (CheckInGroupEntity) -> Unit = { group ->
+        scope.launch {
+            try {
+                Log.d(ShareDebugTag, "=== 开始导出分享流程 ===")
+                Log.d(ShareDebugTag, "group: id=${group.id}, name=${group.name}, isEnabled=${group.isEnabled}")
+
+                val safeName = group.name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                val tasks = viewModel.checkInTasksMap.value[group.id] ?: emptyList()
+                Log.d(ShareDebugTag, "safeName: $safeName, tasks count: ${tasks.size}")
+
+                // ─── 统一写入缓存目录 + FileProvider ───
+                val tempFile = File(context.cacheDir, "checkin_${safeName}_${System.currentTimeMillis()}.zip")
+                Log.d(ShareDebugTag, "tempFile: ${tempFile.absolutePath}")
+
+                val exportSuccess = java.io.FileOutputStream(tempFile).use { fos ->
+                    viewModel.exportSingleCheckInGroup(group, tasks, fos)
+                }
+                if (!exportSuccess) {
+                    Log.e(ShareDebugTag, "exportSingleCheckInGroup 返回 false")
+                    Toast.makeText(context, context.getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                val fileSize = tempFile.length()
+                Log.d(ShareDebugTag, "导出成功, 文件大小: $fileSize bytes")
+
+                if (!tempFile.exists()) {
+                    Log.e(ShareDebugTag, "文件不存在: ${tempFile.absolutePath}")
+                    Toast.makeText(context, context.getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val shareUri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    tempFile
+                )
+                Log.d(ShareDebugTag, "shareUri: $shareUri")
+
+                Log.d(ShareDebugTag, "API level: ${Build.VERSION.SDK_INT}, package: ${context.packageName}")
+
+                // ─── 系统分享 Intent（用于查询可接收的应用列表） ───
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_STREAM, shareUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                // 查询所有能处理此 Intent 的应用
+                val pm = context.packageManager
+                val resInfoList = pm.queryIntentActivities(shareIntent, PackageManager.MATCH_DEFAULT_ONLY).sortedBy {
+                    it.loadLabel(pm).toString()
+                }
+                Log.d(ShareDebugTag, "可接收应用数量: ${resInfoList.size}")
+                resInfoList.forEach { ri ->
+                    Log.d(ShareDebugTag, "  应用: ${ri.loadLabel(pm)} / ${ri.activityInfo.packageName}")
+                }
+
+                if (resInfoList.isEmpty()) {
+                    Log.w(ShareDebugTag, "没有应用可接收分享")
+                    Toast.makeText(context, "未找到可接收的应用", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                // ─── 弹出自定义应用选择列表（避免系统 Chooser 的微信多个图标问题） ───
+                val items = resInfoList.map { ri ->
+                    ri.loadLabel(pm).toString() to ri.activityInfo.packageName
+                }
+                val appNames = items.map { it.first }.toTypedArray()
+                val appIcons = resInfoList.map { ri -> ri.loadIcon(pm) }.toTypedArray()
+
+                android.app.AlertDialog.Builder(context)
+                    .setTitle("分享到")
+                    .setAdapter(
+                        object : android.widget.ArrayAdapter<String>(context, android.R.layout.select_dialog_item, appNames) {
+                            override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
+                                val view = super.getView(position, convertView, parent)
+                                val icon = appIcons[position]
+                                if (view is android.widget.TextView) {
+                                    val resizedIcon = icon.constantState?.newDrawable()?.mutate() ?: icon
+                                    resizedIcon.setBounds(0, 0, 48, 48)
+                                    view.setCompoundDrawablesRelative(resizedIcon, null, null, null)
+                                    view.compoundDrawablePadding = 24
+                                }
+                                return view
+                            }
+                        }
+                    ) { _: android.content.DialogInterface, which: Int ->
+                        val (_, pkg) = items[which]
+                        Log.d(ShareDebugTag, "用户选择: $pkg")
+                        // 显式授权给目标应用
+                        try {
+                            context.grantUriPermission(pkg, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            Log.d(ShareDebugTag, "已授权 $pkg 读取 URI")
+                        } catch (_: Exception) { }
+                        shareIntent.setPackage(pkg)
+                        context.startActivity(shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        Log.d(ShareDebugTag, "启动分享到 $pkg")
+                    }
+                    .setOnCancelListener { Log.d(ShareDebugTag, "用户取消分享") }
+                    .show()
+
+                Log.d(ShareDebugTag, "自定义分享弹窗已显示")
+            } catch (e: Exception) {
+                Log.e(ShareDebugTag, "分享流程异常: ${e.javaClass.simpleName}: ${e.message}")
+                e.printStackTrace()
+                Toast.makeText(context, context.getString(R.string.export_error, e.message), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     MainAppContent(
         groups = groups,
         alarms = alarms,
@@ -258,6 +397,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         onToggleGroup = { group, enabled -> viewModel.toggleGroup(group, enabled) },
         onToggleAlarm = { alarm, enabled -> viewModel.toggleAlarm(alarm, enabled) },
         onDeleteGroup = { viewModel.deleteGroup(it) },
+        onUpdateGroup = { viewModel.updateGroup(it) },
         onDeleteAlarm = { viewModel.deleteAlarm(it) },
         onDuplicateAlarm = { viewModel.duplicateAlarm(it) },
         onMoveAlarmToGroup = { alarm, targetGroupId -> viewModel.moveAlarmToGroup(alarm, targetGroupId) },
@@ -273,7 +413,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         onUpdateAlarm = { viewModel.updateAlarm(it) },
         onImportAudio = { uri, name -> viewModel.importLocalAudio(context, uri, name) },
         onExportConfig = { exportLauncher.launch("alarm_backup_${System.currentTimeMillis()}.zip") },
-        onImportConfig = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+        onImportConfig = { importLauncher.launch(arrayOf("application/octet-stream", "application/octet-stream")) },
         onTestTts = { viewModel.testTts(it) },
         onSetTtsPitch = { viewModel.setTtsPitch(it) },
         onSetTtsRate = { viewModel.setTtsRate(it) },
@@ -295,6 +435,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         onSetCustomRecordingPath = { viewModel.setCustomRecordingPath(it) },
         timerRemainingSeconds = timerRemainingSeconds,
         isTimerRunning = isTimerRunning,
+        isTimerRinging = isTimerRinging,
         timerHours = timerHours,
         timerMinutes = timerMinutes,
         timerSeconds = timerSeconds,
@@ -303,6 +444,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         onSetTimerSeconds = { viewModel.setTimerSeconds(it) },
         onStartTimer = { viewModel.startTimer(it) },
         onStopTimer = { viewModel.stopTimer() },
+        onDismissTimerRinging = { viewModel.dismissTimerRinging() },
         debugLogs = debugLogs,
         onStartRecording = { viewModel.startRecording() },
         onStopRecording = { viewModel.stopRecording(it) },
@@ -313,6 +455,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         availableVoices = viewModel.availableVoices.collectAsState().value,
         selectedTtsVoice = viewModel.selectedTtsVoiceName.collectAsState().value,
         onSetTtsVoice = { viewModel.setTtsVoice(it) },
+        onScanTtsEngines = { viewModel.scanTtsEngines() },
         discoveredDevices = viewModel.discoveredDevices.collectAsState().value,
         onStartDiscovery = { viewModel.startDiscovery() },
         onStopDiscovery = { viewModel.stopDiscovery() },
@@ -322,7 +465,23 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         updateInfo = viewModel.updateInfo.collectAsState().value,
         onPerformUpdate = { viewModel.performUpdate() },
         downloadProgress = viewModel.downloadProgress.collectAsState().value,
-        onDeleteRingtone = { viewModel.deleteRingtone(it) }
+        onDeleteRingtone = { viewModel.deleteRingtone(it) },
+        // 打卡相关
+        checkInGroups = viewModel.checkInGroups.collectAsState().value,
+        checkInTasksMap = viewModel.checkInTasksMap.collectAsState().value,
+        onAddCheckInGroup = { name, tasks ->
+            viewModel.addCheckInGroup(name, tasks)
+        },
+        onDeleteCheckInGroup = { viewModel.deleteCheckInGroup(it) },
+        onUpdateCheckInGroup = { group, tasks ->
+            viewModel.updateCheckInGroup(group, tasks)
+        },
+        onToggleCheckInGroup = { group, enabled, replaceExisting ->
+            viewModel.toggleCheckInGroup(group, enabled, replaceExisting)
+        },
+        onDuplicateCheckInGroup = { viewModel.duplicateCheckInGroup(it) },
+        onShareCheckInGroup = onShareCheckInGroup,
+        onImportCheckInGroup = { importCheckInGroupLauncher.launch(arrayOf("application/octet-stream", "application/octet-stream")) }
     )
 }
 
@@ -386,6 +545,7 @@ fun MainAppPreview() {
                 onToggleGroup = { _, _ -> },
                 onToggleAlarm = { _, _ -> },
                 onDeleteGroup = {},
+                onUpdateGroup = {},
                 onDeleteAlarm = {},
                 onDuplicateAlarm = {},
                 onMoveAlarmToGroup = { _, _ -> },
@@ -419,6 +579,7 @@ fun MainAppPreview() {
                 onSetDuplicateOffsetMinutes = {},
                 timerRemainingSeconds = 0,
                 isTimerRunning = false,
+                isTimerRinging = false,
                 timerHours = 0,
                 timerMinutes = 0,
                 timerSeconds = 0,
@@ -427,10 +588,12 @@ fun MainAppPreview() {
                 onSetTimerSeconds = {},
                 onStartTimer = {},
                 onStopTimer = {},
+                onDismissTimerRinging = {},
                 debugLogs = emptyList(),
                 onStartRecording = {},
                 onStopRecording = { _ -> null },
                 onCancelRecording = {},
+                onScanTtsEngines = {},
                 discoveredDevices = emptyList(),
                 customRecordingPath = android.os.Environment.getExternalStorageDirectory().absolutePath + "/0",
                 onSetCustomRecordingPath = {},
@@ -438,7 +601,7 @@ fun MainAppPreview() {
                 onSetAutoUpdateEnabled = {},
                 updateInfo = null,
                 onPerformUpdate = {},
-                downloadProgress = -1f
+                downloadProgress = -1f,
             )
         }
     }

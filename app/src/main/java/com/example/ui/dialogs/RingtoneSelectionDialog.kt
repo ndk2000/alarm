@@ -224,7 +224,7 @@ fun RingtoneSelectionDialog(
             }
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).imePadding()) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
