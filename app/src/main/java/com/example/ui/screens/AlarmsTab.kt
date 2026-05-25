@@ -142,7 +142,7 @@ fun AlarmsTab(
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(groups, key = { it.id }) { group ->
-                        var isExpanded by remember { mutableStateOf(true) }
+                        var isExpanded by remember { mutableStateOf(false) }
                         val groupAlarms = alarms.filter { it.groupId == group.id }
                         val isHovered = hoveredGroupId == group.id
                         

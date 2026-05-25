@@ -265,18 +265,20 @@ fun MainAppContent(
                     icon = { Icon(Icons.Default.Wifi, contentDescription = "WiFi Sync") },
                     label = { Text(stringResource(R.string.nav_sync)) }
                 )
+
                 NavigationBarItem(
                     selected = currentTab == 4,
                     onClick = { currentTab = 4 },
-                    icon = { Icon(Icons.Default.Info, contentDescription = "About") },
-                    label = { Text(stringResource(R.string.nav_about)) }
+                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Check-in") },
+                    label = { Text(stringResource(R.string.nav_checkin)) }
                 )
                 NavigationBarItem(
                     selected = currentTab == 5,
                     onClick = { currentTab = 5 },
-                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Check-in") },
-                    label = { Text(stringResource(R.string.nav_checkin)) }
+                    icon = { Icon(Icons.Default.Info, contentDescription = "About") },
+                    label = { Text(stringResource(R.string.nav_about)) }
                 )
+
             }
         }
     ) { innerPadding ->
@@ -366,8 +368,7 @@ fun MainAppContent(
                     recordingPath = customRecordingPath,
                     onDeleteRingtone = onDeleteRingtone
                 )
-                4 -> AboutTab()
-                5 -> CheckInTab(
+                4 -> CheckInTab(
                     groups = checkInGroups,
                     tasksMap = checkInTasksMap,
                     onAddGroup = { showAddCheckInDialog = true },
@@ -381,6 +382,8 @@ fun MainAppContent(
                     onShareGroup = onShareCheckInGroup,
                     onImportGroup = onImportCheckInGroup
                 )
+                5 -> AboutTab()
+
             }
         }
     }

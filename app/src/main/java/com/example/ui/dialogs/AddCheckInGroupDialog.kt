@@ -23,7 +23,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalContext
 import com.example.R
+import com.example.alarm.TtsTaskPlayer
 import com.example.db.CheckInTaskEntity
 import com.example.db.CheckInGroupEntity
 
@@ -65,6 +67,8 @@ fun AddCheckInGroupDialog(
     }
     // 哪个任务的铃声选择对话框正在打开（index）
     var taskRingtoneIndex by remember { mutableStateOf(-1) }
+    // 待确认删除的任务索引
+    var taskToDeleteIndex by remember { mutableStateOf(-1) }
 
     val isEdit = existingGroup != null
 
@@ -112,6 +116,7 @@ fun AddCheckInGroupDialog(
                 )
 
                 tasks.forEachIndexed { index, task ->
+                    val context = LocalContext.current
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -134,6 +139,10 @@ fun AddCheckInGroupDialog(
                                 OutlinedTextField(
                                     value = task.name,
                                     onValueChange = { newName ->
+                                        // 改名时清理旧文本的 TTS 缓存文件
+                                        if (newName != task.name && task.name.isNotBlank()) {
+                                            TtsTaskPlayer.deleteCache(context, task.name)
+                                        }
                                         tasks = tasks.toMutableList().also { it[index] = task.copy(name = newName) }
                                     },
                                     placeholder = { Text(stringResource(R.string.checkin_task_name_hint)) },
@@ -145,9 +154,31 @@ fun AddCheckInGroupDialog(
                                         unfocusedBorderColor = MaterialTheme.colorScheme.outline
                                     )
                                 )
+                                // TTS 试听按钮
+                                IconButton(
+                                    onClick = {
+                                        // 试听并自动设为铃声
+                                        TtsTaskPlayer.play(context, task.name) { cachedPath ->
+                                            tasks = tasks.toMutableList().also {
+                                                it[index] = task.copy(ringtonePath = cachedPath, useTts = true)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.RecordVoiceOver,
+                                        contentDescription = "试听",
+                                        tint = if (task.name.isNotBlank())
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                                 if (tasks.size > 1) {
                                     IconButton(
-                                        onClick = { tasks = tasks.toMutableList().also { it.removeAt(index) } },
+                                        onClick = { taskToDeleteIndex = index },
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
@@ -348,5 +379,37 @@ fun AddCheckInGroupDialog(
             onImportAudio = onImportAudio
         )
     }
-}
 
+    // 删除任务的确认弹窗
+    if (taskToDeleteIndex in tasks.indices) {
+            AlertDialog(
+                onDismissRequest = { taskToDeleteIndex = -1 },
+                title = { Text("确认删除", color = MaterialTheme.colorScheme.onSurface) },
+                text = {
+                    val taskName = tasks[taskToDeleteIndex].name
+                    Text(
+                        if (taskName.isNotBlank()) "确定要删除\"$taskName\"吗？"
+                        else "确定要删除第${taskToDeleteIndex + 1}项吗？",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            tasks = tasks.toMutableList().also { it.removeAt(taskToDeleteIndex) }
+                            taskToDeleteIndex = -1
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("删除", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { taskToDeleteIndex = -1 }) {
+                        Text("取消", color = Color.Gray)
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        }
+    }

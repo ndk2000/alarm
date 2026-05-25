@@ -2,6 +2,7 @@ package com.example
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -18,8 +19,11 @@ import android.provider.OpenableColumns
 import android.content.Intent
 import android.util.Log
 import androidx.activity.compose.LocalActivityResultRegistryOwner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 // import kotlinx.coroutines.flow.drop
+import androidx.lifecycle.lifecycleScope
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -52,6 +56,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -105,7 +110,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // 后台预生成 24 段报时语音（仅首次需要，之后即开即播）
-        com.example.alarm.ChimeAudioPreloader.ensure(this)
+        // ★ 放到 IO 协程中，避免阻塞主线程（首次合成慢，后续直接跳过）
+        lifecycleScope.launch(Dispatchers.IO) {
+            com.example.alarm.ChimeAudioPreloader.ensure(this@MainActivity)
+        }
 
         setContent {
             val viewModel: AlarmViewModel = viewModel()
@@ -129,6 +137,8 @@ private val ShareDebugTag = "ShareDebug"
 @Composable
 fun MainAppShellContent(viewModel: AlarmViewModel) {
     val context = LocalContext.current
+    // 从 View 树获取 Activity（比 LocalContext.current 更可靠）
+    val activity = LocalView.current.context as? ComponentActivity
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -278,6 +288,12 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         scope.launch {
             try {
                 Log.d(ShareDebugTag, "=== 开始导出分享流程 ===")
+
+                // ─── 从 View 树获取的 Activity 引用 ───
+                if (activity == null || activity.isFinishing || activity.isDestroyed) {
+                    Log.w(ShareDebugTag, "Activity 不可用, activity=${activity}, 跳过分享")
+                    return@launch
+                }
                 Log.d(ShareDebugTag, "group: id=${group.id}, name=${group.name}, isEnabled=${group.isEnabled}")
 
                 val safeName = group.name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
@@ -314,40 +330,85 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
 
                 Log.d(ShareDebugTag, "API level: ${Build.VERSION.SDK_INT}, package: ${context.packageName}")
 
-                // ─── 系统分享 Intent（用于查询可接收的应用列表） ───
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_STREAM, shareUri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-
-                // 查询所有能处理此 Intent 的应用
+                // ─── 查询可接收应用（多种 MIME 类型，合并去重） ───
+                val mimeTypes = listOf("application/zip", "application/x-zip-compressed",
+                    "application/octet-stream")
                 val pm = context.packageManager
-                val resInfoList = pm.queryIntentActivities(shareIntent, PackageManager.MATCH_DEFAULT_ONLY).sortedBy {
-                    it.loadLabel(pm).toString()
+                val allResults = linkedSetOf<ResolveInfo>()
+                for (mime in mimeTypes) {
+                    val qi = Intent(Intent.ACTION_SEND).apply { type = mime }
+                    try {
+                        allResults.addAll(pm.queryIntentActivities(qi, 0))
+                    } catch (_: Exception) { }
                 }
-                Log.d(ShareDebugTag, "可接收应用数量: ${resInfoList.size}")
-                resInfoList.forEach { ri ->
+                // 按包名去重，保留第一个出现的
+                val seenPkgs = mutableSetOf<String>()
+                val deduped = allResults.filter { ri ->
+                    ri.activityInfo.packageName.let { pkg -> if (pkg !in seenPkgs) { seenPkgs.add(pkg); true } else false }
+                }.sortedBy { it.loadLabel(pm).toString() }
+
+                // ─── 常用分享白名单 ───
+                // 只显示这些包名的应用，列表可自行增删
+                val whitelist = setOf(
+                    "com.tencent.mm",                // 微信
+                    "com.tencent.mobileqq",           // QQ
+                    "com.ss.android.ugc.aweme",      // 抖音
+                    "com.kuaishou.nebula",            // 快手
+                    "com.eg.android.AlipayGphone",    // 支付宝
+                    "com.taobao.taobao",              // 淘宝
+                    "com.ss.android.article.news",    // 今日头条
+                    "com.ss.android.article.lite",     // 今日头条极速版
+                    "com.microsoft.emmx",             // Edge
+                    "com.android.chrome",             // Chrome
+                    "com.quark.browser",              // 夸克
+                    "org.localsend.localsend_app",    // LocalSend
+                    "com.chinamobile.mcloud",         // 中国移动云盘
+                    "com.android.email",              // 电子邮件
+                    "com.android.mms",                 // 短信
+                    "com.xiaomi.smarthome",           // 米家
+                )
+                val filteredApps = deduped.filter { ri ->
+                    ri.activityInfo.packageName in whitelist
+                }.ifEmpty { deduped }  // 如果白名单全都没装，回退到全部
+
+                Log.d(ShareDebugTag, "白名单应用数量: ${filteredApps.size}")
+                deduped.forEach { ri ->
                     Log.d(ShareDebugTag, "  应用: ${ri.loadLabel(pm)} / ${ri.activityInfo.packageName}")
                 }
 
-                if (resInfoList.isEmpty()) {
+                if (filteredApps.isEmpty()) {
                     Log.w(ShareDebugTag, "没有应用可接收分享")
                     Toast.makeText(context, "未找到可接收的应用", Toast.LENGTH_SHORT).show()
                     return@launch
                 }
 
-                // ─── 弹出自定义应用选择列表（避免系统 Chooser 的微信多个图标问题） ───
-                val items = resInfoList.map { ri ->
-                    ri.loadLabel(pm).toString() to ri.activityInfo.packageName
+                // ─── 弹出自定义应用选择列表 ───
+                if (activity.isFinishing || activity.isDestroyed) {
+                    Log.w(ShareDebugTag, "Activity 已不可用, 改用系统 Chooser")
+                    // 直接用带 EXTRA_STREAM 的 intent 走系统分享
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/zip"
+                        putExtra(Intent.EXTRA_STREAM, shareUri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    activity.startActivity(Intent.createChooser(shareIntent, "分享打卡配置").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    return@launch
+                }
+
+                val items = filteredApps.map { ri ->
+                    Triple(
+                        ri.loadLabel(pm).toString(),
+                        ri.activityInfo.packageName,
+                        ri.activityInfo.name   // 精确的 Activity 类名
+                    )
                 }
                 val appNames = items.map { it.first }.toTypedArray()
-                val appIcons = resInfoList.map { ri -> ri.loadIcon(pm) }.toTypedArray()
+                val appIcons = filteredApps.map { ri -> ri.loadIcon(pm) }.toTypedArray()
 
-                android.app.AlertDialog.Builder(context)
+                android.app.AlertDialog.Builder(activity)
                     .setTitle("分享到")
                     .setAdapter(
-                        object : android.widget.ArrayAdapter<String>(context, android.R.layout.select_dialog_item, appNames) {
+                        object : android.widget.ArrayAdapter<String>(activity, android.R.layout.select_dialog_item, appNames) {
                             override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
                                 val view = super.getView(position, convertView, parent)
                                 val icon = appIcons[position]
@@ -360,17 +421,36 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
                                 return view
                             }
                         }
-                    ) { _: android.content.DialogInterface, which: Int ->
-                        val (_, pkg) = items[which]
-                        Log.d(ShareDebugTag, "用户选择: $pkg")
-                        // 显式授权给目标应用
-                        try {
-                            context.grantUriPermission(pkg, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            Log.d(ShareDebugTag, "已授权 $pkg 读取 URI")
-                        } catch (_: Exception) { }
-                        shareIntent.setPackage(pkg)
-                        context.startActivity(shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        Log.d(ShareDebugTag, "启动分享到 $pkg")
+                    ) { dialog: android.content.DialogInterface, which: Int ->
+                        val (_, pkg, cls) = items[which]
+                        Log.d(ShareDebugTag, "用户选择: $pkg / $cls")
+                        dialog.dismiss()
+                        activity.window?.decorView?.post {
+                            try {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/zip"
+                                    putExtra(Intent.EXTRA_STREAM, shareUri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    component = android.content.ComponentName(pkg, cls)
+                                }
+                                activity.startActivity(shareIntent)
+                                Log.d(ShareDebugTag, "启动分享到 $pkg / $cls")
+                            } catch (e: Exception) {
+                                Log.e(ShareDebugTag, "启动分享异常: ${e.message}")
+                                // fallback: 用 setPackage 重试
+                                try {
+                                    val fallback = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/zip"
+                                        putExtra(Intent.EXTRA_STREAM, shareUri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        setPackage(pkg)
+                                    }
+                                    activity.startActivity(fallback)
+                                } catch (e2: Exception) {
+                                    Toast.makeText(activity, "无法分享到该应用", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
                     }
                     .setOnCancelListener { Log.d(ShareDebugTag, "用户取消分享") }
                     .show()

@@ -54,16 +54,17 @@
     <string name="external_import">Import</string>
     <string name="record_yourself">Record</string>
     <string name="search_placeholder">Search ringtones…</string>
-    <string name="tab_system_recording">🎙️ Recordings</string>
+    <string name="tab_system_recording">🎙️ Audio Record</string>
     <string name="tab_custom_sync">📁 Custom Sync</string>
     <string name="tab_builtin_sounds">🎵 Built-in</string>
-    <string name="no_recordings_found">No recordings found in /Recordings folder\n(Record using the phone\'s recorder app\nor copy audio files to the Recordings folder)</string>
+    <string name="no_recordings_found">No recordings found\n(Record with your phone\'s recorder app, then find it here)</string>
     <string name="no_custom_ringtones">No custom ringtones uploaded yet.\nUse WiFi console to upload.</string>
     <string name="no_system_ringtones">No system ringtones found</string>
     <string name="permission_mic_required">Microphone permission required to record</string>
     <string name="play_error">Cannot play this ringtone</string>
     <string name="imported_and_selected">Imported and selected: %s</string>
-
+    <string name="recorder_import">📱 Import Recorder</string>
+    <string name="import_from_recorder">📱 From recorder</string>
     <string name="mic_recording_prefix">🎙️ Recording: %s</string>
     <string name="preview_ringtone">Preview ringtone</string>
     <string name="chinese">中文</string>

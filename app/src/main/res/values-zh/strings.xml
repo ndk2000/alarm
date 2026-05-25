@@ -73,18 +73,19 @@
     <!-- 铃声选择对话框 -->
     <string name="select_ringtone_title">选择铃声</string>
     <string name="external_import">外部导入</string>
+    <string name="recorder_import">📱 从录音机导入</string>
     <string name="record_yourself">自己录音</string>
     <string name="search_placeholder">搜索内置或导入的铃声…</string>
-    <string name="tab_system_recording">🎙️ 系统录音</string>
+    <string name="tab_system_recording">🎙️ 录音文件</string>
     <string name="tab_custom_sync">📁 自定义同步</string>
     <string name="tab_builtin_sounds">🎵 内置声音</string>
-    <string name="no_recordings_found">没有在 /Recordings 文件夹中发现录音\n（支持直接在手机自带录音机中录制声音\n或将音频文件复制到存储卡的 Recordings 文件夹下）</string>
+    <string name="no_recordings_found">没有找到录音文件\n（记录方式：用手机自带录音机录音后，即可在此看到）</string>
     <string name="no_custom_ringtones">暂无已上传的自定义铃声，请使用 WiFi 控制台上传</string>
     <string name="no_system_ringtones">未找到系统内置铃声内容</string>
     <string name="permission_mic_required">必须获得麦克风授权才能自己录音</string>
     <string name="play_error">无法播放此铃声试听</string>
     <string name="imported_and_selected">导入并选择了铃声：%s</string>
-
+    <string name="import_from_recorder">📱 从录音机导入</string>
     <string name="mic_recording_prefix">🎙️ 录音：%s</string>
     <string name="preview_ringtone">试听</string>
     <string name="chinese">中文</string>

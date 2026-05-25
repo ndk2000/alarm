@@ -3,7 +3,7 @@ package com.example.ui
 import android.app.Application
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
+import androidx.core.content.edit
 import android.os.Build
 import android.util.Log
 import android.media.RingtoneManager
@@ -119,7 +119,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                     addLog("服务器响应成功 (200)")
                     val response = conn.inputStream.bufferedReader().readText()
                     addLog("响应数据长度: ${response.length} 字符")
-                    val json = org.json.JSONObject(response)
+                    val json = JSONObject(response)
                     val tagName = json.getString("tag_name")
                     val body = json.getString("body")
                     addLog("解析到版本标签: $tagName")
@@ -140,7 +140,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                     val currentVersion = getApplication<Application>().packageManager.getPackageInfo(getApplication<Application>().packageName, 0).versionName
                     addLog("当前应用版本: $currentVersion")
                     
-                    if (tagName != currentVersion && downloadUrl.isNotEmpty()) {
+                    if (currentVersion == null && tagName != currentVersion && downloadUrl.isNotEmpty()) {
                         _updateInfo.value = UpdateInfo(tagName, downloadUrl, body)
                         addLog("发现新版本: $tagName")
                     } else {
@@ -614,7 +614,10 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 // 4. OPPO / 一加 / 真我 (ColorOS) 与 VIVO / iQOO (OriginOS) 常见录音目录
                 File("/storage/emulated/0/Recorder"),
                 File("/storage/emulated/0/SoundRecorder"),
-                File("/storage/emulated/0/sound_recorder")
+                File("/storage/emulated/0/sound_recorder"),
+
+                // 5. 新版 MIUI 系统录音机 (Android/data 目录) —— 此路径因 Android 11+ Scoped Storage 限制，
+                //    无法通过 File API 直接读取，只能通过下方的 MediaStore 查询（contains com.android.soundrecorder）获取
             )
 
             // 开始深挖这些文件夹
@@ -648,6 +651,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                         val path = cursor.getString(dataColumn) ?: ""
                         if (path.isNotEmpty() && (
                             path.contains("sound_recorder", ignoreCase = true) ||
+                            path.contains("com.android.soundrecorder", ignoreCase = true) ||
                             path.contains("MIUI", ignoreCase = true) ||
                             path.contains("Recordings", ignoreCase = true) ||
                             path.contains("SoundRecorder", ignoreCase = true) ||

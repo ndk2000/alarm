@@ -45,8 +45,12 @@ fun WheelDialPicker(
     // 用户滑动释放后，自动吸附到距离中心最近的项，并动画滚动至居中
     LaunchedEffect(Unit) {
         var wasScrolling = false
+        var isSnapping = false // ★ 防止动画结束后的循环触发
         snapshotFlow { listState.isScrollInProgress }
             .collect { scrolling ->
+                // ★ 吸附动画进行中，忽略所有滚动状态变化，避免循环
+                if (isSnapping) return@collect
+
                 if (!wasScrolling && !scrolling) {
                     // 初始状态未滚动，跳过
                     return@collect
@@ -67,12 +71,15 @@ fun WheelDialPicker(
                     if (snappedValue != value) {
                         onValueChange(snappedValue)
                     }
+                    // ★ 标记正在吸附，阻止循环触发
+                    isSnapping = true
+                    wasScrolling = false
                     // 动画滚动到居中，实现视觉磁吸
                     scope.launch {
                         listState.animateScrollToItem(closest.index)
+                        // ★ 动画完成后，解除标记，允许下一次用户滑动
+                        isSnapping = false
                     }
-                    // 重置状态，避免 animateScrollToItem 结束后再一次触发磁吸
-                    wasScrolling = false
                 }
             }
     }
