@@ -120,39 +120,15 @@ object AlarmScheduler {
             flags
         )
 
-        // For absolute precision we need to use setExactAndAllowWhileIdle
-        // Ensure proper permissions are in place on SDK 31+ or degrade gracefully to normal set.
+        // 使用 setAlarmClock 确保准时触发——不依赖 SCHEDULE_EXACT_ALARM 权限，
+        // 且在 Doze 模式下也不会被延迟。这是闹钟 App 最可靠的方案。
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (canScheduleExactAlarmsReflective(alarmManager)) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                } else {
-                    alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent
-                )
-            } else {
-                alarmManager.setExact(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent
-                )
-            }
-            Log.d(TAG, "Scheduled alarm ${alarm.id} at ${Date(triggerAtMillis)}")
-        } catch (e: SecurityException) {
-            Log.e(TAG, "SecurityException: cannot set exact alarm, falling back", e)
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAtMillis, null)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+            Log.d(TAG, "Scheduled alarm ${alarm.id} via setAlarmClock at ${Date(triggerAtMillis)}")
+        } catch (e: Exception) {
+            // 极少数情况下 setAlarmClock 也失败时，降级
+            Log.e(TAG, "setAlarmClock failed, falling back", e)
             alarmManager.set(
                 AlarmManager.RTC_WAKEUP,
                 triggerAtMillis,

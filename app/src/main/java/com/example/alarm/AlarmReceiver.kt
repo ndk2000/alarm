@@ -45,15 +45,8 @@ class AlarmReceiver : BroadcastReceiver() {
                     context.startService(serviceIntent)
                 }
 
-                // Also open the full-screen ringing activity
-                val activityIntent = Intent(context, AlarmActiveActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    putExtra("ALARM_ID", alarmId)
-                    putExtra("ALARM_LABEL", label)
-                    putExtra("ALARM_RINGTONE", ringtone)
-                    putExtra("ALARM_VIBRATE", vibrate)
-                }
-                context.startActivity(activityIntent)
+                // 注：不再在此处直接 startActivity（Android 12+ 会拦截后台 Activity 启动），
+                // 改为由 AlarmService 在发布通知后通过 PendingIntent 启动关闭界面
 
                 // Reschedule the same alarm if it's repeating
                 rescheduleSingle(context, alarmId)

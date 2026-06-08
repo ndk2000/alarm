@@ -1,7 +1,12 @@
 package com.example.alarm
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.*
@@ -20,6 +25,17 @@ class WifiSyncClient(private val context: Context) {
         private const val DEFAULT_PORT = 8080
         private const val CONNECT_TIMEOUT = 10000
         private const val READ_TIMEOUT = 60000
+    }
+
+    /** 检查是否有外部存储写入权限（适配 API 29+ 和 30+） */
+    private fun hasStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: 使用 MANAGE_EXTERNAL_STORAGE
+            Environment.isExternalStorageManager()
+        } else {
+            // Android 10 及以下: 使用 WRITE_EXTERNAL_STORAGE 权限
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     sealed class SyncResult {
@@ -75,7 +91,12 @@ class WifiSyncClient(private val context: Context) {
                     SyncResult.Success("同步成功！已从 $ipAddress 拉取全部配置和铃声")
                 } else {
                     Log.e(TAG, "Import failed (importBackupToLocal returned false)")
-                    SyncResult.Error("同步失败：备份数据解析出错，请确认对方版本是否一致")
+                    // 检查是否是权限问题（importBackupToLocal 内部已经记录了具体原因）
+                    if (!hasStoragePermission()) {
+                        SyncResult.Error("同步失败：缺少「所有文件访问权限」，请在设置中开启后重试")
+                    } else {
+                        SyncResult.Error("同步失败：备份数据解析出错，请确认对方版本是否一致")
+                    }
                 }
             } catch (e: java.net.ConnectException) {
                 Log.e(TAG, "Connection refused", e)
@@ -183,7 +204,13 @@ class WifiSyncClient(private val context: Context) {
             } else {
                 android.os.Environment.getExternalStorageDirectory().absolutePath + "/0"
             }
-            
+
+            // 检查外部存储权限
+            if (!hasStoragePermission()) {
+                Log.e(TAG, "没有外部存储写入权限，无法导入铃声文件。路径: $recordingPath")
+                return false
+            }
+
             val ringtonesDir = File(recordingPath)
             if (!ringtonesDir.exists()) ringtonesDir.mkdirs()
 
@@ -315,6 +342,64 @@ class WifiSyncClient(private val context: Context) {
                                 vibrate = c.getBoolean("vibrate")
                             )
                         )
+                    }
+
+                    // 导入打卡组
+                    val checkinGroupIdMap = mutableMapOf<Long, Long>()
+                    if (root.has("checkinGroups")) {
+                        val checkinGroupsArr = root.getJSONArray("checkinGroups")
+                        if (importMode == ImportMode.CLEAR) {
+                            db.checkinDao().getAllGroups().forEach { db.checkinDao().deleteGroup(it) }
+                        }
+                        for (i in 0 until checkinGroupsArr.length()) {
+                            val g = checkinGroupsArr.getJSONObject(i)
+                            val rawRingtonePath = if (g.isNull("ringtonePath")) null else g.getString("ringtonePath")
+                            var newRingtonePath: String? = rawRingtonePath
+                            if (newRingtonePath != null && (newRingtonePath.contains("/files/custom_ringtones/") || newRingtonePath.contains("/0/"))) {
+                                newRingtonePath = File(ringtonesDir, newRingtonePath.substringAfterLast("/")).absolutePath
+                            }
+                            val oldBoundAlarmGroupId = if (g.has("boundAlarmGroupId")) g.getLong("boundAlarmGroupId") else -1L
+                            val newBoundAlarmGroupId = idMap[oldBoundAlarmGroupId] ?: -1L
+                            val newId = db.checkinDao().insertGroup(
+                                com.example.db.CheckInGroupEntity(
+                                    name = g.getString("name"),
+                                    isEnabled = g.getBoolean("isEnabled"),
+                                    ringtonePath = newRingtonePath,
+                                    boundAlarmGroupId = newBoundAlarmGroupId,
+                                    createdAt = if (g.has("createdAt")) g.getLong("createdAt") else System.currentTimeMillis()
+                                )
+                            )
+                            checkinGroupIdMap[g.getLong("id")] = newId
+                        }
+                    }
+
+                    // 导入打卡事项
+                    if (root.has("checkinTasks")) {
+                        val checkinTasksObj = root.getJSONObject("checkinTasks")
+                        for (oldGroupIdStr in checkinTasksObj.keys()) {
+                            val oldGroupId = oldGroupIdStr.toLongOrNull() ?: continue
+                            val newGroupId = checkinGroupIdMap[oldGroupId] ?: continue
+                            val tasksArr = checkinTasksObj.getJSONArray(oldGroupIdStr)
+                            for (j in 0 until tasksArr.length()) {
+                                val t = tasksArr.getJSONObject(j)
+                                val rawRingtonePath = if (t.isNull("ringtonePath")) null else t.getString("ringtonePath")
+                                var newRingtonePath: String? = rawRingtonePath
+                                if (newRingtonePath != null && (newRingtonePath.contains("/files/custom_ringtones/") || newRingtonePath.contains("/0/"))) {
+                                    newRingtonePath = File(ringtonesDir, newRingtonePath.substringAfterLast("/")).absolutePath
+                                }
+                                db.checkinDao().insertTask(
+                                    com.example.db.CheckInTaskEntity(
+                                        groupId = newGroupId,
+                                        name = t.getString("name"),
+                                        hour = if (t.has("hour")) t.getInt("hour") else 8,
+                                        minute = if (t.has("minute")) t.getInt("minute") else 0,
+                                        orderIndex = if (t.has("orderIndex")) t.getInt("orderIndex") else 0,
+                                        ringtonePath = newRingtonePath,
+                                        useTts = if (t.has("useTts")) t.getBoolean("useTts") else false
+                                    )
+                                )
+                            }
+                        }
                     }
 
                     // 重新调度所有闹钟

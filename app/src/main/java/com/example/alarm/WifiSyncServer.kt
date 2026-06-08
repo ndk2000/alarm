@@ -7,12 +7,15 @@ import com.example.db.Alarm
 import com.example.db.AlarmDatabase
 import com.example.db.AlarmGroup
 import com.example.db.HourlyChime
+import com.example.db.CheckInGroupEntity
+import com.example.db.CheckInTaskEntity
 import com.example.db.AlarmRepository
 import kotlinx.coroutines.*
 import java.io.*
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
+import org.json.JSONObject
 import java.util.*
 import java.util.zip.Deflater
 
@@ -634,6 +637,41 @@ class WifiSyncServer(
                     }
                     rootJson.put("chimes", chimesJson)
 
+                    // 打卡组
+                    val checkinGroups = runBlocking { db.checkinDao().getAllGroups() }
+                    val checkinGroupsJson = org.json.JSONArray()
+                    checkinGroups.forEach { g ->
+                        checkinGroupsJson.put(org.json.JSONObject().apply {
+                            put("id", g.id)
+                            put("name", g.name)
+                            put("isEnabled", g.isEnabled)
+                            put("ringtonePath", g.ringtonePath ?: JSONObject.NULL)
+                            put("boundAlarmGroupId", g.boundAlarmGroupId)
+                            put("createdAt", g.createdAt)
+                        })
+                    }
+                    rootJson.put("checkinGroups", checkinGroupsJson)
+
+                    // 打卡事项
+                    val checkinTasksJson = org.json.JSONObject()
+                    checkinGroups.forEach { g ->
+                        val tasks = runBlocking { db.checkinDao().getTasksByGroup(g.id) }
+                        val tasksArr = org.json.JSONArray()
+                        tasks.forEach { t ->
+                            tasksArr.put(org.json.JSONObject().apply {
+                                put("id", t.id)
+                                put("name", t.name)
+                                put("hour", t.hour)
+                                put("minute", t.minute)
+                                put("orderIndex", t.orderIndex)
+                                put("ringtonePath", t.ringtonePath ?: JSONObject.NULL)
+                                put("useTts", t.useTts)
+                            })
+                        }
+                        checkinTasksJson.put(g.id.toString(), tasksArr)
+                    }
+                    rootJson.put("checkinTasks", checkinTasksJson)
+
                     zos.putNextEntry(java.util.zip.ZipEntry("config.json"))
                     zos.write(rootJson.toString().toByteArray(Charsets.UTF_8))
                     zos.closeEntry()
@@ -832,6 +870,61 @@ class WifiSyncServer(
                             val c = chimesArr.getJSONObject(i)
                             db.alarmDao().updateHourlyChime(HourlyChime(hour = c.getInt("hour"), isEnabled = c.getBoolean("isEnabled"), useTts = c.getBoolean("useTts"), vibrate = c.getBoolean("vibrate")))
                         }
+
+                        // 打卡组
+                        val checkinGroupIdMap = mutableMapOf<Long, Long>()
+                        if (root.has("checkinGroups")) {
+                            val checkinGroupsArr = root.getJSONArray("checkinGroups")
+                            // 清空旧的打卡数据（外键 CASCADE 会自动删除打卡事项）
+                            db.checkinDao().getAllGroups().forEach { db.checkinDao().deleteGroup(it) }
+                            for (i in 0 until checkinGroupsArr.length()) {
+                                val g = checkinGroupsArr.getJSONObject(i)
+                                val rawRingtonePath = if (g.isNull("ringtonePath")) null else g.getString("ringtonePath")
+                                var newRingtonePath: String? = rawRingtonePath
+                                if (newRingtonePath != null && (newRingtonePath.contains("/files/custom_ringtones/") || newRingtonePath.contains("/0/"))) {
+                                    newRingtonePath = File(ringtonesDir, newRingtonePath.substringAfterLast("/")).absolutePath
+                                }
+                                val oldBoundAlarmGroupId = if (g.has("boundAlarmGroupId")) g.getLong("boundAlarmGroupId") else -1L
+                                val newBoundAlarmGroupId = idMap[oldBoundAlarmGroupId] ?: -1L
+                                val newId = db.checkinDao().insertGroup(CheckInGroupEntity(
+                                    name = g.getString("name"),
+                                    isEnabled = g.getBoolean("isEnabled"),
+                                    ringtonePath = newRingtonePath,
+                                    boundAlarmGroupId = newBoundAlarmGroupId,
+                                    createdAt = if (g.has("createdAt")) g.getLong("createdAt") else System.currentTimeMillis()
+                                ))
+                                checkinGroupIdMap[g.getLong("id")] = newId
+                            }
+                        }
+
+                        // 打卡事项
+                        if (root.has("checkinTasks")) {
+                            val checkinTasksObj = root.getJSONObject("checkinTasks")
+                            // checkinTasks 是一个 JSONObject: { "oldGroupId1": [...], "oldGroupId2": [...] }
+                            for (oldGroupIdStr in checkinTasksObj.keys()) {
+                                val oldGroupId = oldGroupIdStr.toLongOrNull() ?: continue
+                                val newGroupId = checkinGroupIdMap[oldGroupId] ?: continue
+                                val tasksArr = checkinTasksObj.getJSONArray(oldGroupIdStr)
+                                for (j in 0 until tasksArr.length()) {
+                                    val t = tasksArr.getJSONObject(j)
+                                    val rawRingtonePath = if (t.isNull("ringtonePath")) null else t.getString("ringtonePath")
+                                    var newRingtonePath: String? = rawRingtonePath
+                                    if (newRingtonePath != null && (newRingtonePath.contains("/files/custom_ringtones/") || newRingtonePath.contains("/0/"))) {
+                                        newRingtonePath = File(ringtonesDir, newRingtonePath.substringAfterLast("/")).absolutePath
+                                    }
+                                    db.checkinDao().insertTask(CheckInTaskEntity(
+                                        groupId = newGroupId,
+                                        name = t.getString("name"),
+                                        hour = if (t.has("hour")) t.getInt("hour") else 8,
+                                        minute = if (t.has("minute")) t.getInt("minute") else 0,
+                                        orderIndex = if (t.has("orderIndex")) t.getInt("orderIndex") else 0,
+                                        ringtonePath = newRingtonePath,
+                                        useTts = if (t.has("useTts")) t.getBoolean("useTts") else false
+                                    ))
+                                }
+                            }
+                        }
+
                         db.alarmDao().getAllAlarms().forEach { alarm ->
                             val group = db.alarmDao().getAllGroups().find { it.id == alarm.groupId }
                             AlarmScheduler.scheduleAlarm(context, alarm, group)

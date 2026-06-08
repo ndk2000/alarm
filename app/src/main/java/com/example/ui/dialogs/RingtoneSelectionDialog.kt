@@ -243,100 +243,122 @@ fun RingtoneSelectionDialog(
             Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).imePadding()) {
                 
                 // ========== 顶栏操作按钮行：三个功能按钮 ==========
-                // [📤外部导入] [🎵从录音机导入] [🎤自己录音]
-                // 三个按钮等宽（weight(1f)），间隔 8dp
+                // 图标按钮在上方（固定大小不变形），文字在按钮下方
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    
-                    // ===== 按钮1：外部导入（轮廓按钮，淡蓝色边框） =====
-                    // 从手机任意位置导入音频文件，默认跳到 Recordings 文件夹
-                    OutlinedButton(
-                        onClick = {
-                            try {
-                                // 构建 Intent：打开系统文件选择器，过滤音频文件
-                                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                                    type = "audio/*"                    // 只显示音频文件
-                                    addCategory(Intent.CATEGORY_OPENABLE) // 只显示可打开的文件
-                                    // 尝试定位到手机录音机默认目录（Recordings 文件夹）
-                                    val recorderUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ARecordings")
-                                    putExtra("android.provider.extra.INITIAL_URI", recorderUri)  // 设置初始目录
-                                    putExtra("android.provider.extra.SHOW_ADVANCED", true)       // 显示高级选项
-                                    putExtra(Intent.EXTRA_LOCAL_ONLY, true)                      // 只允许本地文件
-                                }
-                                audioPickerLauncher.launch(intent)
-                            } catch (e: Exception) {
-                                // 如果带有 INITIAL_URI 的 Intent 出错了（如某些手机不支持）
-                                // 就用不带初始目录的普通文件选择器兜底
-                                val fallbackIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                                    type = "audio/*"
-                                    addCategory(Intent.CATEGORY_OPENABLE)
-                                }
-                                audioPickerLauncher.launch(fallbackIntent)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),  // 三等分宽度
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color(0xFFADC6FF)  // 浅蓝色文字/图标
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFADC6FF)),  // 浅蓝色边框
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)  // 圆角 10dp
+                    // ===== 按钮1：外部导入 =====
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.external_import), fontSize = 12.sp)
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                        type = "audio/*"
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        val recorderUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ARecordings")
+                                        putExtra("android.provider.extra.INITIAL_URI", recorderUri)
+                                        putExtra("android.provider.extra.SHOW_ADVANCED", true)
+                                        putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                                    }
+                                    audioPickerLauncher.launch(intent)
+                                } catch (e: Exception) {
+                                    val fallbackIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                        type = "audio/*"
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                    }
+                                    audioPickerLauncher.launch(fallbackIntent)
+                                }
+                            },
+                            modifier = Modifier.size(48.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFFADC6FF)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFADC6FF)),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.external_import),
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
                     }
 
-                    // ===== 按钮2：从录音机导入（轮廓按钮，淡蓝色边框） =====
-                    // 使用 OpenDocument 协议，让系统文档选择器显示录音机等应用的音频
-                    OutlinedButton(
-                        onClick = {
-                            // 直接启动文档选择器，不过滤特定音频类型
-                            importRecorderLauncher.launch(arrayOf("audio/*"))
-                        },
-                        modifier = Modifier.weight(1f),  // 三等分宽度
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color(0xFFADC6FF)  // 浅蓝色文字/图标
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFADC6FF)),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                    // ===== 按钮2：从录音机导入 =====
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.AudioFile, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.import_from_recorder), fontSize = 12.sp)
+                        OutlinedButton(
+                            onClick = {
+                                importRecorderLauncher.launch(arrayOf("audio/*"))
+                            },
+                            modifier = Modifier.size(48.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFFADC6FF)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFADC6FF)),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.AudioFile, contentDescription = null, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.import_from_recorder),
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
                     }
 
-                    // ===== 按钮3：自己录音（实心按钮，深红色背景） =====
-                    // 点击后请求麦克风权限，弹出录音界面
-                    Button(
-                        onClick = {
-                            // 检查麦克风权限是否已经授予
-                            val recordPermission = Manifest.permission.RECORD_AUDIO
-                            val hasPermission = ContextCompat.checkSelfPermission(
-                                context,
-                                recordPermission
-                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                            if (hasPermission) {
-                                // 已有权限，直接弹出录音对话框
-                                showRecordingStudio = true
-                            } else {
-                                // 没权限，启动权限申请流程（用户弹窗确认后回调）
-                                recordPermissionLauncher.launch(recordPermission)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),  // 三等分宽度
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF5E1717),  // 深红色背景
-                            contentColor = Color(0xFFFFDAD7)     // 浅红色文字/图标
-                        ),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                    // ===== 按钮3：自己录音（实心，深红色） =====
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.record_yourself), fontSize = 12.sp)
+                        Button(
+                            onClick = {
+                                val recordPermission = Manifest.permission.RECORD_AUDIO
+                                val hasPermission = ContextCompat.checkSelfPermission(
+                                    context,
+                                    recordPermission
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (hasPermission) {
+                                    showRecordingStudio = true
+                                } else {
+                                    recordPermissionLauncher.launch(recordPermission)
+                                }
+                            },
+                            modifier = Modifier.size(48.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF5E1717),
+                                contentColor = Color(0xFFFFDAD7)
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.record_yourself),
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
                     }
                 }
 

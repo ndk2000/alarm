@@ -1,0 +1,7 @@
+Total lines: 937
+Last 5 lines:
+  L933: '            )\n'
+  L934: '        }\n'
+  L935: '    }\n'
+  L936: '}\n'
+  L937: '}\n'

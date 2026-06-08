@@ -124,6 +124,18 @@ object BatteryOptimizationGuide {
     }
 
     /**
+     * Check whether the app likely has autostart permission enabled.
+     * Uses battery optimization status as a reasonable heuristic since
+     * there is no universal Android API to query autostart status.
+     * TODO: Add manufacturer-specific autostart checks (Xiaomi miui.autostart, etc.)
+     */
+    fun isAutostartEnabled(context: Context): Boolean {
+        // Battery optimization being disabled is a strong indicator that
+        // the user has whitelisted the app, which usually includes autostart.
+        return isBatteryOptimizationDisabled(context)
+    }
+
+    /**
      * Returns a brief setup tip specific to the device manufacturer.
      */
     fun getManufacturerTip(): String {

@@ -349,6 +349,12 @@ fun AlarmsTab(
                                         }
                                     }
                                 }
+
+                                DisposableEffect(group.id) {
+                                    onDispose {
+                                        groupBounds.remove(group.id)
+                                    }
+                                }
                             }
                         }
                     }

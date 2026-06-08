@@ -15,10 +15,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.db.AlarmDatabase
+import com.example.db.AlarmRecord
 import com.example.db.AlarmRepository
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -85,13 +85,15 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
 
         when (action) {
             "START_RINGING" -> {
+                val alarmId = intent.getLongExtra("ALARM_ID", -1L)
                 val label = intent.getStringExtra("ALARM_LABEL") ?: "闹钟"
                 val ringtone = intent.getStringExtra("ALARM_RINGTONE")
                 val vibrate = intent.getBooleanExtra("ALARM_VIBRATE", true)
-                startRingingForeground(label, ringtone, vibrate)
+                startRingingForeground(alarmId, label, ringtone, vibrate)
             }
             "STOP_RINGING" -> {
-                stopRinging()
+                val alarmId = intent.getLongExtra("ALARM_ID", -1L)
+                stopRinging(alarmId)
             }
             "TRIGGER_CHIME" -> {
                 val hour = intent.getIntExtra("CHIME_HOUR", Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
@@ -119,6 +121,21 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             "STOP_COUNTDOWN" -> {
                 stopCountdown()
             }
+            "UPDATE_TTS_VOICE" -> {
+                // 用户切换语音后，动态更新 AlarmService 的 TTS 实例
+                val voiceName = intent?.getStringExtra("TTS_VOICE_NAME") ?: ""
+                if (voiceName.isNotEmpty() && isTtsInitialized) {
+                    val matched = tts?.voices?.find { it.name == voiceName }
+                    if (matched != null) {
+                        tts?.setVoice(matched)
+                        Log.d(TAG, "已动态更新 TTS 语音: $voiceName")
+                        // 清除旧的预合成缓存，下次报时走实时 TTS 从而使用新语音
+                        clearChimeCache()
+                    } else {
+                        Log.w(TAG, "动态更新语音失败，不可用: $voiceName")
+                    }
+                }
+            }
         }
 
         // Return START_STICKY to satisfy background persistence
@@ -126,7 +143,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     }
 
     // Starts foreground notification for active alarm ringing
-    private fun startRingingForeground(label: String, ringtonePath: String?, vibrate: Boolean) {
+    private fun startRingingForeground(alarmId: Long, label: String, ringtonePath: String?, vibrate: Boolean) {
         // 核心加固：闹钟响起时立即申请唤醒锁，防止系统在锁屏下瞬间切断 CPU 导致不响
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -136,6 +153,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
 
         val fullscreenIntent = Intent(this, AlarmActiveActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("ALARM_ID", alarmId)
             putExtra("ALARM_LABEL", label)
         }
         
@@ -154,24 +172,39 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         // Dismiss action button
         val dismissIntent = Intent(this, AlarmService::class.java).apply {
             action = "STOP_RINGING"
+            putExtra("ALARM_ID", alarmId)
         }
         val dismissPendingIntent = PendingIntent.getService(this, 1, dismissIntent, pendingFlags)
 
         val notification = NotificationCompat.Builder(this, RINGING_CHANNEL_ID)
             .setContentTitle("闹铃开响中")
-            .setContentText(label)
+            .setContentText("点击关闭 · $label")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setFullScreenIntent(fullScreenPendingIntent, true)
+            .setContentIntent(dismissPendingIntent) // 点通知本身也能关
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "关闭闹钟", dismissPendingIntent)
             .setOngoing(true)
             .build()
 
         startForegroundCompat(RINGING_NOTIFICATION_ID, notification)
 
+        // 直接启动关闭界面（前台服务属于前台进程，不受 Android 12+ 后台限制）
+        // fullScreenIntent（setFullScreenIntent）在某些手机上不可靠，双重保障
+        try {
+            startActivity(fullscreenIntent)
+        } catch (e: Exception) {
+            Log.w(TAG, "直接启动关闭界面失败，fullScreenIntent 兜底: ${e.message}")
+        }
+
         // Start Media Playback
         playAlarmSound(ringtonePath)
+
+        // 延迟 1.5 秒后用 TTS 说出闹钟标签，让用户知道这个闹钟是做什么的
+        android.os.Handler(Looper.getMainLooper()).postDelayed({
+            speak(label)
+        }, 1500L)
 
         // Start Vibration
         if (vibrate) {
@@ -232,8 +265,30 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun stopRinging() {
-        Log.d(TAG, "stopRinging called")
+    private fun stopRinging(alarmId: Long = -1L) {
+        Log.d(TAG, "stopRinging called, alarmId=$alarmId")
+        
+        // 更新 AlarmRecord 状态为 COMPLETED（只有 PENDING 状态才更新，避免覆写已关闭的）
+        if (alarmId > 0) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = AlarmDatabase.getDatabase(this@AlarmService, CoroutineScope(Dispatchers.IO))
+                    val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                    val record = db.alarmRecordDao().getRecord(alarmId, todayDate)
+                    if (record != null && record.status == "PENDING") {
+                        db.alarmRecordDao().updateStatus(record.id, "COMPLETED", System.currentTimeMillis())
+                        Log.d(TAG, "AlarmRecord $alarmId updated to COMPLETED")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update AlarmRecord status", e)
+                }
+            }
+        } else if (alarmId == -1L) {
+            // 计时器关闭 → 通知 UI 重置状态
+            val resetIntent = Intent("com.example.TIMER_DISMISSED")
+            sendBroadcast(resetIntent)
+        }
+
         mediaPlayer?.stop()
         mediaPlayer?.release()
         mediaPlayer = null
@@ -256,7 +311,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun triggerHourlyChime(hour: Int, useTts: Boolean, vibrate: Boolean, chimeStyle: Int = 0) {
-        val text = "现在是北京时间 ${hour} 点整"
+        val text = "现在是北京时间${hour}点整"
         Log.d(TAG, "triggerHourlyChime text: $text, chimeStyle: $chimeStyle")
 
         // 核心加固：申请 1 分钟的唤醒锁，确保 CPU 在灭屏/应用关闭状态下不休眠，直到报时完成
@@ -297,7 +352,13 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
                     playAudioFile(cachedFile.absolutePath)
                 } else {
                     // 兜底：如果文件还没生成好，使用实时合成
-                    speak(text)
+                    if (isTtsInitialized) {
+                        speak(text)
+                    } else {
+                        // ★ 关键修复：TTS 未就绪时，播放提示音代替完全静音
+                        Log.w(TAG, "TTS 未就绪（isTtsInitialized=false），播放提示音代替报时")
+                        playSingleBeep()
+                    }
                 }
             } else {
                 playSingleBeep()
@@ -391,6 +452,15 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "ChimeTTS")
     }
 
+    /** 清除旧的预合成报时缓存文件，使下次报时走实时 TTS 以反映新选的语音 */
+    private fun clearChimeCache() {
+        for (h in 0..23) {
+            ChimeAudioPreloader.file(this, h).delete()
+        }
+        ChimeAudioPreloader.resetCacheFlag(this)
+        Log.d(TAG, "已清除旧的报时语音缓存文件")
+    }
+
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val result = tts?.setLanguage(Locale.CHINA)
@@ -408,6 +478,19 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             
             tts?.setPitch(1.0f)
             tts?.setSpeechRate(1.0f)
+
+            // 恢复用户选择的 TTS 语音（与 ViewModel 共享 tts_prefs）
+            val prefs = getSharedPreferences("tts_prefs", Context.MODE_PRIVATE)
+            val savedVoice = prefs.getString("tts_voice", "") ?: ""
+            if (savedVoice.isNotEmpty()) {
+                val matched = tts?.voices?.find { it.name == savedVoice }
+                if (matched != null) {
+                    tts?.setVoice(matched)
+                    Log.d(TAG, "已恢复 TTS 语音: $savedVoice")
+                } else {
+                    Log.w(TAG, "语音 $savedVoice 在当前引擎中不可用")
+                }
+            }
 
             // 引擎准备好了，检查是否有待播放的内容
             isTtsInitialized = true
@@ -591,7 +674,7 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
                 countdownTimer = null
                 // 倒计时结束：移除前台通知 → 启动响铃前台
                 stopForeground(true)
-                startRingingForeground("计时结束", null, true)
+                startRingingForeground(-1L, "计时结束", null, true)
             }
         }.start()
     }

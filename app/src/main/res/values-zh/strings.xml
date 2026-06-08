@@ -8,10 +8,12 @@
     <!-- 底部导航 -->
     <string name="nav_alarms">闹钟</string>
     <string name="nav_chimes">报时</string>
-    <string name="nav_timer">计时器</string>
+    <string name="nav_timer">计时</string>
     <string name="nav_sync">同步</string>
     <string name="nav_about">关于</string>
     <string name="nav_checkin">打卡</string>
+    <string name="nav_countdown">倒计时</string>
+    <string name="nav_cloud">云端</string>
 
     <!-- 打卡任务 -->
     <string name="checkin_title">打卡任务</string>
@@ -42,6 +44,38 @@
     <string name="confirm_delete_title">确认删除</string>
     <string name="confirm_delete_text">确定要删除这个闹钟吗？此操作不可撤销。</string>
     <string name="delete">删除</string>
+    <string name="edit">编辑</string>
+    <string name="duplicate">复制</string>
+    <string name="share">分享</string>
+    <string name="cloud_share">共享至云端</string>
+    <string name="share_alarms">分享闹钟</string>
+    <string name="share_checkin">分享打卡</string>
+    <string name="cloud_import">导入</string>
+    <string name="share_records">分享记录</string>
+    <string name="no_share_records">暂无分享记录</string>
+    <string name="cloud_manage">管理</string>
+    <string name="cloud_share_code">分享码</string>
+    <string name="cloud_share_desc">他人可以通过此分享码或扫描二维码导入您的配置。</string>
+    <string name="copy_share_code">复制分享码</string>
+    <string name="close">关闭</string>
+    <string name="cloud_sharing">正在上传到云端...</string>
+    <string name="cloud_share_success">上传成功！</string>
+    <string name="cloud_share_code_hint">您的分享码在 30 天内有效。</string>
+    <string name="view_qr_code">查看二维码</string>
+    <string name="alarm_groups">闹钟分组</string>
+    <string name="no_alarm_groups">没有可用的闹钟分组</string>
+    <string name="check_in_groups">打卡分组</string>
+    <string name="no_check_in_groups">没有可用的打卡分组</string>
+    <string name="cloud_import_method">导入方式</string>
+    <string name="scan_qr_code">扫码导入</string>
+    <string name="input_share_code">输入分享码</string>
+    <string name="import_from_cloud">从云端导入</string>
+    <string name="dismiss">忽略</string>
+    <string name="cloud_not_configured">未配置云端服务</string>
+    <string name="supabase_not_configured">未在设置中配置 Supabase</string>
+    <string name="cloud_configs_list">我的分享列表</string>
+    <string name="cloud_delete_confirm_title">删除分享？</string>
+    <string name="cloud_delete_confirm">确定要从云端删除分享码 %s 吗？</string>
     <string name="save">保存</string>
     <string name="cancel">取消</string>
 
@@ -113,7 +147,9 @@
     <string name="enter_ip_placeholder">例如：192.168.1.100</string>
     <string name="syncing">同步中…</string>
     <string name="pull_from_remote">从远程拉取并覆盖本地</string>
-    <string name="remote_sync_desc">使用说明：在另一台手机上开启「Wi-Fi 同步」开关，将本机 IP 输入到目标手机中，点击同步即可将对方的所有闹钟配置和铃声拉取到本机。⚠️ 同步会覆盖本地所有闹钟数据！</string>
+    <string name="remote_sync_desc">使用说明：在另一台手机上开启「Wi-Fi 同步」开关，将本机 IP 输入到目标手机中，点击同步即可将对方的所有闹钟配置和铃声拉取到本机。⚠️ 同步会覆盖本地所有闹钟数据！也可以自动扫描局域网内的设备。</string>
+    <string name="scan_lan_devices">🔍 扫描局域网设备</string>
+    <string name="stop_scanning">⏹ 停止扫描</string>
     <string name="local_backup">本地备份与恢复</string>
     <string name="backup_export">备份导出</string>
     <string name="share_config">分享配置</string>
@@ -140,6 +176,7 @@
     <string name="disable_battery_opt_tip">打开系统设置，允许应用后台运行</string>
     <string name="battery_opt_already_disabled">✅ 本应用已关闭电池优化</string>
     <string name="autostart_title">开启自启动</string>
+    <string name="autostart_already_enabled">✅ 本应用已开启自启动</string>
     <string name="autostart_tip">允许应用在系统启动或被杀死后自动重启</string>
     <string name="manufacturer_guide_title">各品牌手机设置指引</string>
 
@@ -154,13 +191,15 @@
     <string name="bell_dreamy">💫 梦幻</string>
     <string name="test">测试</string>
     <string name="testing_tts">正在尝试触发语音测试…</string>
-    <string name="chime_style_tts">TTS 智能报时</string>
+    <string name="chime_style_tts">TTS报时</string>
     <string name="chime_style_bell">悦耳钟声</string>
     <string name="tts_engine">TTS 引擎</string>
     <string name="tts_voice">TTS 语音</string>
     <string name="speed">语速</string>
     <string name="pitch">音调</string>
     <string name="system_default">系统默认</string>
+    <string name="open_tts_settings">打开系统TTS设置</string>
+    <string name="open_engine_settings">打开引擎详情</string>
     <string name="default_voice">默认（引擎自动选择）</string>
     <string name="quality_hd">★高清</string>
     <string name="quality_high">高品质</string>
@@ -233,7 +272,7 @@
     <string name="sync_mode_merge">合并</string>
     <string name="sync_mode_chimes">仅同步报时语音</string>
     <!-- 关于 / 版本 -->
-    <string name="about_section">关于</string>
+    <string name="about_section">更新历史</string>
     <string name="version_format">版本 %s</string>
     <string name="build_date_format">构建日期 %s</string>
     <string name="view_changelog">查看更新说明</string>

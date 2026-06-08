@@ -1,0 +1,10 @@
+feat: 同步Tab拆分+云端同步+清除数据按钮+去重修复 
+ 
+- WifiSyncTab 拆分为内部两个Tab 
+- 新增云端同步上传全部/下载全部功能 
+- 新增清除全部本地数据按钮（二次确认） 
+- 底部导航恢复为7个Tab（含倒计时、云端） 
+- 修复云端同步只下打卡组不下闹钟组问题 
+- 使用 viewModel.cloudShareRecords.value 实时检查上传状态 
+ 
+Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com> 

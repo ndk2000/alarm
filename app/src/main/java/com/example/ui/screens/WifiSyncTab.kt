@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -20,10 +21,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.cloud.*
+import com.example.db.AlarmGroup
+import com.example.db.CheckInGroupEntity
+import com.example.db.CheckInTaskEntity
 import com.example.ui.AlarmViewModel
+import kotlinx.coroutines.launch
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WifiSyncTab(
     isOn: Boolean,
@@ -42,6 +49,82 @@ fun WifiSyncTab(
     onSetTheme: (Int) -> Unit,
     onSetLanguage: (String) -> Unit,
     discoveredDevices: List<Pair<String, String>> = emptyList(),
+    onStartDiscovery: () -> Unit = {},
+    onStopDiscovery: () -> Unit = {},
+    recordingPath: String = "",
+    onDeleteRingtone: (String) -> Unit = {},
+    groups: List<AlarmGroup> = emptyList(),
+    checkInGroups: List<CheckInGroupEntity> = emptyList(),
+    checkInTasksMap: Map<Long, List<CheckInTaskEntity>> = emptyMap(),
+    cloudService: CloudService? = null
+) {
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("本地同步", "云端同步")
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = selectedTab) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(title) }
+                )
+            }
+        }
+
+        when (selectedTab) {
+            0 -> LocalSyncContent(
+                isOn = isOn,
+                customRingtones = customRingtones,
+                onToggle = onToggle,
+                onExport = onExport,
+                onImport = onImport,
+                onRefreshMonitor = onRefreshMonitor,
+                syncStatus = syncStatus,
+                syncTargetIp = syncTargetIp,
+                onSetSyncTargetIp = onSetSyncTargetIp,
+                onSyncFromRemote = onSyncFromRemote,
+                onClearSyncStatus = onClearSyncStatus,
+                appTheme = appTheme,
+                appLanguage = appLanguage,
+                onSetTheme = onSetTheme,
+                onSetLanguage = onSetLanguage,
+                discoveredDevices = discoveredDevices,
+                onStartDiscovery = onStartDiscovery,
+                onStopDiscovery = onStopDiscovery,
+                recordingPath = recordingPath,
+                onDeleteRingtone = onDeleteRingtone
+            )
+            1 -> CloudSyncContent(
+                groups = groups,
+                checkInGroups = checkInGroups,
+                checkInTasksMap = checkInTasksMap,
+                cloudService = cloudService
+            )
+        }
+    }
+}
+
+@Composable
+private fun LocalSyncContent(
+    isOn: Boolean,
+    customRingtones: List<String>,
+    onToggle: (Boolean) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+    onRefreshMonitor: () -> Unit,
+    syncStatus: AlarmViewModel.SyncStatus,
+    syncTargetIp: String,
+    onSetSyncTargetIp: (String) -> Unit,
+    onSyncFromRemote: (com.example.alarm.WifiSyncClient.ImportMode) -> Unit,
+    onClearSyncStatus: () -> Unit,
+    appTheme: Int,
+    appLanguage: String,
+    onSetTheme: (Int) -> Unit,
+    onSetLanguage: (String) -> Unit,
+    discoveredDevices: List<Pair<String, String>> = emptyList(),
+    onStartDiscovery: () -> Unit = {},
+    onStopDiscovery: () -> Unit = {},
     recordingPath: String = "",
     onDeleteRingtone: (String) -> Unit = {}
 ) {
@@ -51,10 +134,8 @@ fun WifiSyncTab(
     } else {
         "192.168.1."
     }
-
     val ip = localIp.ifEmpty { stringResource(R.string.connected_wlan) }
     val webAddress = "http://$ip:8080"
-
     val isZh = appLanguage == "zh"
 
     var showImportModeDialog by remember { mutableStateOf(false) }
@@ -143,7 +224,7 @@ fun WifiSyncTab(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.remote_sync), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                     }
-                    
+
                     if (discoveredDevices.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text("点击下方发现的设备直接同步：", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -169,18 +250,13 @@ fun WifiSyncTab(
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
-
-                    // IP 地址输入
                     OutlinedTextField(
                         value = syncTargetIp,
                         onValueChange = {
                             var newVal = it
-                            // 如果用户删光了，自动补全前缀
                             if (newVal.isEmpty()) {
                                 newVal = ipPrefix
                             } else if (!newVal.startsWith(ipPrefix)) {
-                                // 如果用户尝试修改前缀，我们也强制拉回来，除非他们是真的想改（比如换网段）
-                                // 这里简单点，如果输入长度小于前缀长度且不匹配，补上前缀
                                 if (newVal.length < ipPrefix.length) {
                                     newVal = ipPrefix
                                 }
@@ -194,12 +270,9 @@ fun WifiSyncTab(
                         modifier = Modifier.fillMaxWidth(),
                         leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null) },
                         shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Uri
-                        )
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
                     )
 
-                    // 自动补齐前缀逻辑：当输入框聚焦且为空时，自动填入前缀
                     LaunchedEffect(Unit) {
                         if (syncTargetIp.isEmpty()) {
                             onSetSyncTargetIp(ipPrefix)
@@ -208,7 +281,6 @@ fun WifiSyncTab(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // 同步按钮
                     Button(
                         onClick = { showImportModeDialog = true },
                         modifier = Modifier.fillMaxWidth(),
@@ -217,11 +289,7 @@ fun WifiSyncTab(
                     ) {
                         when (syncStatus) {
                             is AlarmViewModel.SyncStatus.Connecting -> {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    strokeWidth = 2.dp
-                                )
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(stringResource(R.string.syncing), fontSize = 14.sp)
                             }
@@ -233,44 +301,28 @@ fun WifiSyncTab(
                         }
                     }
 
-                    // 同步状态提示
                     when (val status = syncStatus) {
                         is AlarmViewModel.SyncStatus.Success -> {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null,
-                                    tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = status.message,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF4CAF50)
-                                )
+                                Text(text = status.message, fontSize = 12.sp, color = Color(0xFF4CAF50))
                             }
                         }
                         is AlarmViewModel.SyncStatus.Error -> {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Error, contentDescription = null,
-                                    tint = Color(0xFFEF5350), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Error, contentDescription = null, tint = Color(0xFFEF5350), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = status.message,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFFEF5350)
-                                )
+                                Text(text = status.message, fontSize = 12.sp, color = Color(0xFFEF5350))
                             }
                         }
                         else -> {}
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        stringResource(R.string.remote_sync_desc),
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.outline,
-                        lineHeight = 14.sp
-                    )
+                    Text(stringResource(R.string.remote_sync_desc), fontSize = 10.sp, color = MaterialTheme.colorScheme.outline, lineHeight = 14.sp)
                 }
             }
         }
@@ -286,146 +338,102 @@ fun WifiSyncTab(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Save, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.local_backup), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                        Text("备份与恢复", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                     }
+
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(
+
+                    Button(
+                        onClick = onExport,
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = onExport,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(stringResource(R.string.backup_export), fontSize = 12.sp, maxLines = 1)
-                        }
-                        OutlinedButton(
-                            onClick = onImport,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(stringResource(R.string.import_restore), fontSize = 12.sp, maxLines = 1)
-                        }
+                        Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("导出配置", fontSize = 13.sp)
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = onImport,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("导入配置", fontSize = 13.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("备份数据文件，可用于迁移到新手机", fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
                 }
             }
         }
 
-        // --- 已存放的自定义铃声 ---
+        // --- 铃声管理 ---
         item {
-            Text(
-                stringResource(R.string.uploaded_ringtones, customRingtones.size),
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-            )
-        }
-
-        if (customRingtones.isEmpty()) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            stringResource(R.string.no_uploaded_ringtones),
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.outline,
-                            textAlign = TextAlign.Center
-                        )
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("铃声管理", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                     }
-                }
-            }
-        } else {
-            items(customRingtones) { name ->
-                Card(
-                    shape = RoundedCornerShape(10.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.AudioFile, contentDescription = null, tint = Color(0xFFADC6FF))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = name,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = { ringtoneToDelete = name }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "删除",
-                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("自定义铃声", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    customRingtones.forEach { path ->
+                        val fileName = path.substringAfterLast("/")
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.AudioFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = fileName,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
                             )
+                            IconButton(onClick = { ringtoneToDelete = path }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                            }
                         }
+                    }
+
+                    if (customRingtones.isEmpty()) {
+                        Text(stringResource(R.string.no_custom_ringtones), fontSize = 12.sp, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 8.dp))
                     }
                 }
             }
         }
     }
 
-    // 同步模式选择对话框
+    // ── 导入模式选择对话框 ──
     if (showImportModeDialog) {
         AlertDialog(
             onDismissRequest = { showImportModeDialog = false },
-            title = { Text(stringResource(R.string.sync_mode_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.sync_mode_desc))
-                    
-                    Button(
-                        onClick = {
-                            showImportModeDialog = false
-                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.CLEAR)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text(stringResource(R.string.sync_mode_clear))
-                    }
-
-                    Button(
-                        onClick = {
-                            showImportModeDialog = false
-                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.MERGE)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(stringResource(R.string.sync_mode_merge))
-                    }
-
-                    Button(
-                        onClick = {
-                            showImportModeDialog = false
-                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.ONLY_CHIMES)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                    ) {
-                        Text(stringResource(R.string.sync_mode_chimes))
-                    }
+            title = { Text("选择导入模式") },
+            text = { Text("选择从远程同步时如何处理现有数据") },
+            confirmButton = {
+                Button(onClick = {
+                    onSyncFromRemote(pendingImportMode)
+                    showImportModeDialog = false
+                }) {
+                    Text("清空并导入")
                 }
             },
-            confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showImportModeDialog = false }) {
                     Text(stringResource(R.string.cancel))
@@ -434,25 +442,18 @@ fun WifiSyncTab(
         )
     }
 
-    // 删除铃声确认对话框
-    ringtoneToDelete?.let { name ->
+    // ── 删除铃声确认对话框 ──
+    ringtoneToDelete?.let { path ->
         AlertDialog(
             onDismissRequest = { ringtoneToDelete = null },
-            title = {
-                Text(if (isZh) "删除铃声" else "Delete Ringtone")
-            },
-            text = {
-                Text(if (isZh) "确定删除「$name」吗？此操作不可撤销。" else "Delete「$name」? This cannot be undone.")
-            },
+            title = { Text("删除自定义铃声") },
+            text = { Text("确认删除「${path.substringAfterLast("/")}」？") },
             confirmButton = {
-                TextButton(onClick = {
-                    ringtoneToDelete = null
-                    onDeleteRingtone(name)
-                }) {
-                    Text(
-                        if (isZh) "删除" else "Delete",
-                        color = MaterialTheme.colorScheme.error
-                    )
+                Button(
+                    onClick = { onDeleteRingtone(path); ringtoneToDelete = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("删除")
                 }
             },
             dismissButton = {
@@ -464,16 +465,221 @@ fun WifiSyncTab(
     }
 }
 
+// ========== 云端同步内部 Tab ==========
+
+@Composable
+private fun CloudSyncContent(
+    groups: List<AlarmGroup>,
+    checkInGroups: List<CheckInGroupEntity>,
+    checkInTasksMap: Map<Long, List<CheckInTaskEntity>>,
+    cloudService: CloudService?
+) {
+    val viewModel: AlarmViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val scope = rememberCoroutineScope()
+
+    var connectionStatus by remember { mutableStateOf<CloudService.ConnectionStatus>(CloudService.ConnectionStatus.Checking) }
+    var uploadProgress by remember { mutableStateOf("") }
+    var downloadProgress by remember { mutableStateOf("") }
+    var isUploading by remember { mutableStateOf(false) }
+    var isDownloading by remember { mutableStateOf(false) }
+    var resultMessage by remember { mutableStateOf("") }
+
+    LaunchedEffect(cloudService) {
+        if (cloudService != null) {
+            connectionStatus = CloudService.ConnectionStatus.Checking
+            connectionStatus = cloudService.checkConnection()
+        } else {
+            connectionStatus = CloudService.ConnectionStatus.NotConfigured
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // ── 连接状态 ──
+        item {
+            val bg = when (connectionStatus) {
+                is CloudService.ConnectionStatus.Connected -> Color(0xFFE8F5E9)
+                is CloudService.ConnectionStatus.Error -> Color(0xFFFFEBEE)
+                is CloudService.ConnectionStatus.Checking -> Color(0xFFFFF3E0)
+                is CloudService.ConnectionStatus.NotConfigured -> Color(0xFFF5F5F5)
+            }
+            val fc = when (connectionStatus) {
+                is CloudService.ConnectionStatus.Connected -> Color(0xFF2E7D32)
+                is CloudService.ConnectionStatus.Error -> Color(0xFFC62828)
+                is CloudService.ConnectionStatus.Checking -> Color(0xFFE65100)
+                is CloudService.ConnectionStatus.NotConfigured -> Color(0xFF616161)
+            }
+            val txt = when (connectionStatus) {
+                is CloudService.ConnectionStatus.Connected -> "✅ 云端已连接"
+                is CloudService.ConnectionStatus.Error -> "❌ 连接失败"
+                is CloudService.ConnectionStatus.Checking -> "⏳ 检测中..."
+                is CloudService.ConnectionStatus.NotConfigured -> "⚠️ 未配置"
+            }
+            Surface(Modifier.fillMaxWidth(), color = bg, shape = RoundedCornerShape(8.dp)) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(txt, color = fc, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    if (connectionStatus is CloudService.ConnectionStatus.Error) {
+                        TextButton(onClick = {
+                            scope.launch {
+                                connectionStatus = CloudService.ConnectionStatus.Checking
+                                connectionStatus = cloudService?.checkConnection() ?: CloudService.ConnectionStatus.NotConfigured
+                            }
+                        }) { Text("重试", fontSize = 12.sp) }
+                    }
+                }
+            }
+        }
+
+        // ── 结果信息 ──
+        if (resultMessage.isNotBlank()) {
+            item {
+                Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
+                    color = if (resultMessage.contains("❌")) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(resultMessage, modifier = Modifier.padding(12.dp), fontSize = 12.sp,
+                        color = if (resultMessage.contains("❌")) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+
+        // ── 上传全部 ──
+        item {
+            Card(shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CloudUpload, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("上传全部到云端", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("已上传的不再重复上传", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (isUploading) { LinearProgressIndicator(Modifier.fillMaxWidth()); Spacer(Modifier.height(4.dp)); Text(uploadProgress, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary) }
+                    Button(onClick = {
+                        scope.launch {
+                            isUploading = true; resultMessage = ""; var ok = 0; var skip = 0
+                            for (g in groups) {
+                                if (viewModel.cloudShareRecords.value.any { it.sourceGroupId == g.id && it.groupType == "alarm" }) { skip++; continue }
+                                uploadProgress = "上传闹钟组: ${g.name}..."; try { viewModel.shareAlarmGroupToCloud(g); ok++ } catch (e: Exception) { resultMessage += "❌ ${g.name}: ${e.message}\n" }
+                            }
+                            for (g in checkInGroups) {
+                                if (viewModel.cloudShareRecords.value.any { it.sourceGroupId == g.id && it.groupType == "checkin" }) { skip++; continue }
+                                uploadProgress = "上传打卡组: ${g.name}..."; try { viewModel.shareCheckInGroupToCloud(g, checkInTasksMap[g.id] ?: emptyList()); ok++ } catch (e: Exception) { resultMessage += "❌ ${g.name}: ${e.message}\n" }
+                            }
+                            uploadProgress = ""; resultMessage += if (ok == 0 && skip > 0) "所有数据均已上传，无需重复操作" else "✅ 上传完成：成功${ok}项，跳过${skip}项"
+                            isUploading = false
+                        }
+                    }, modifier = Modifier.fillMaxWidth(),
+                        enabled = !isUploading && cloudService != null && connectionStatus is CloudService.ConnectionStatus.Connected
+                    ) {
+                        if (isUploading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)) }
+                        Text(if (isUploading) "上传中..." else "🔼 上传全部")
+                    }
+                }
+            }
+        }
+
+        // ── 同步全部到本地 ──
+        item {
+            Card(shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CloudDownload, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("从云端同步全部到本地", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("下载所有云端数据并导入本地", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (isDownloading) { LinearProgressIndicator(Modifier.fillMaxWidth()); Spacer(Modifier.height(4.dp)); Text(downloadProgress, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary) }
+                    Button(onClick = {
+                        scope.launch {
+                            isDownloading = true; resultMessage = ""; var ok = 0
+                            try {
+                                val configs = cloudService?.listConfigs() ?: emptyList()
+                                resultMessage = "【云端共${configs.size}个配置】\n"
+                                for (c in configs) {
+                                    resultMessage += "  type=${c.type.name} code=${c.shareCode} preview=${c.preview.take(20)}\n"
+                                }
+                                resultMessage += "\n"
+                                if (configs.isEmpty()) { resultMessage = "云端没有任何配置数据"; isDownloading = false; return@launch }
+                                for (c in configs) {
+                                    downloadProgress = "下载: ${c.shareCode}..."
+                                    try {
+                                        val success = when (c.type) {
+                                            ShareDataType.ALARM_GROUP  -> viewModel.importAlarmGroupFromCloud(c.shareCode)
+                                            ShareDataType.CHECK_IN_GROUP -> viewModel.importCheckInGroupFromCloud(c.shareCode)
+                                        }
+                                        if (success) ok++ else resultMessage += "❌ ${c.shareCode} 导入失败\n"
+                                    } catch (e: Exception) { resultMessage += "❌ ${c.shareCode}: ${e.message}\n" }
+                                }
+                                resultMessage += "✅ 同步完成：成功导入${ok}项"
+                            } catch (e: Exception) { resultMessage = "❌ 同步失败: ${e.message}" }
+                            isDownloading = false
+                        }
+                    }, modifier = Modifier.fillMaxWidth(),
+                        enabled = !isDownloading && cloudService != null && connectionStatus is CloudService.ConnectionStatus.Connected
+                    ) {
+                        if (isDownloading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)) }
+                        Text(if (isDownloading) "下载中..." else "🔽 同步全部")
+                    }
+                }
+            }
+        }
+
+        // ── 提示 ──
+        item {
+            Text("💡 提示：如需单独分享或导入请切换到「云端」Tab", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        }
+
+        // ── 清除本地数据 ──
+        item {
+            var showConfirm by remember { mutableStateOf(false) }
+            if (showConfirm) {
+                Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("⚠️ 确定清除全部本地数据？", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Spacer(Modifier.height(8.dp))
+                        Text("将删除所有本地闹钟、打卡和分享记录，此操作不可撤销！", fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f))
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { showConfirm = false }, modifier = Modifier.weight(1f)) { Text("取消") }
+                            Button(onClick = { showConfirm = false; viewModel.clearAllLocalData(); resultMessage = "✅ 已清除全部本地数据" },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.weight(1f)) { Text("确认清除") }
+                        }
+                    }
+                }
+            } else {
+                OutlinedButton(onClick = { showConfirm = true }, modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error), shape = RoundedCornerShape(8.dp)) {
+                    Icon(Icons.Default.DeleteSweep, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("清除全部本地数据", fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
 fun getLocalIpAddress(): String? {
     try {
-        val interfaces = NetworkInterface.getNetworkInterfaces()
-        for (intf in interfaces) {
-            if (!intf.isLoopback) {
-                val addresses = intf.inetAddresses
-                for (addr in addresses) {
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
-                        return addr.hostAddress
-                    }
+        val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+        while (interfaces.hasMoreElements()) {
+            val networkInterface = interfaces.nextElement()
+            val addresses = networkInterface.inetAddresses
+            while (addresses.hasMoreElements()) {
+                val addr = addresses.nextElement()
+                if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                    return addr.hostAddress
                 }
             }
         }

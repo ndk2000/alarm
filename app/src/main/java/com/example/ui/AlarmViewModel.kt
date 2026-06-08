@@ -1,10 +1,13 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import androidx.core.content.edit
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import android.media.RingtoneManager
 import android.provider.MediaStore
@@ -26,10 +29,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.alarm.AlarmScheduler
 import com.example.alarm.AlarmService
+import com.example.alarm.ChimeAudioPreloader
 import com.example.db.*
 import com.example.db.CheckInDao
 import com.example.db.CheckInGroupEntity
 import com.example.db.CheckInTaskEntity
+import com.example.cloud.*
 import com.example.ui.dialogs.CheckInTaskInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,12 +44,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeech.EngineInfo
 import android.speech.tts.Voice
+import com.example.tts.BaiduTtsClient
 import java.io.File
 import java.net.InetAddress
 import java.util.Locale
@@ -53,8 +60,12 @@ import java.util.UUID
 class AlarmViewModel(application: Application) : AndroidViewModel(application), TextToSpeech.OnInitListener {
     private val repository: AlarmRepository
     private val checkInDao: CheckInDao
+    private val cloudShareDao: CloudShareDao
+    private var cloudService: CloudService = getService(application)
     private var tts: TextToSpeech? = null
+    private val baiduTtsClient = BaiduTtsClient()
     private var isTtsReady = false
+    private var pendingTtsText: String? = null  // 等 TTS 就绪后再播放的文本
 
     // UI 配置相关 (持久化建议后续加入 SharedPreferences)
     private val _appTheme = MutableStateFlow(0) // 0: 暗夜, 1: 森林, 2: 暖阳
@@ -75,6 +86,10 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     // 录音存放路径配置（默认使用应用专属目录，兼容 Android 11+ 分区存储）
     private val _customRecordingPath = MutableStateFlow("")
     val customRecordingPath: StateFlow<String> = _customRecordingPath.asStateFlow()
+
+    // 数据库目录配置（用户可指定公共目录以实现卸载保留数据）
+    private val _dbDirectoryPath = MutableStateFlow("")
+    val dbDirectoryPath: StateFlow<String> = _dbDirectoryPath.asStateFlow()
 
     // 自动更新配置
     private val _autoUpdateEnabled = MutableStateFlow(true)
@@ -99,7 +114,8 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     private val _downloadProgress = MutableStateFlow(-1f) // -1 表示未在下载，0-1 表示进度
     val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
 
-    fun checkForUpdates() {
+    fun checkForUpdates(isManual: Boolean = false) {
+        if (!isManual && !_autoUpdateEnabled.value) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 addLog("开始检查更新...")
@@ -140,9 +156,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                     val currentVersion = getApplication<Application>().packageManager.getPackageInfo(getApplication<Application>().packageName, 0).versionName
                     addLog("当前应用版本: $currentVersion")
                     
-                    if (currentVersion == null && tagName != currentVersion && downloadUrl.isNotEmpty()) {
-                        _updateInfo.value = UpdateInfo(tagName, downloadUrl, body)
-                        addLog("发现新版本: $tagName")
+                    if (currentVersion != null && tagName != currentVersion && downloadUrl.isNotEmpty()) {
+                        val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+                        val skipTag = prefs.getString("skip_update_tag", "")
+                        if (skipTag != tagName) {
+                            _updateInfo.value = UpdateInfo(tagName, downloadUrl, body)
+                            addLog("发现新版本: $tagName")
+                        } else {
+                            addLog("用户已选择忽略版本: $tagName")
+                        }
                     } else {
                         addLog("当前已是最新版本 ($currentVersion)")
                     }
@@ -192,6 +214,13 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
     }
 
+    fun skipUpdate(tagName: String) {
+        _updateInfo.value = null
+        val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("skip_update_tag", tagName).apply()
+        addLog("忽略版本: $tagName")
+    }
+
     private fun installApk(file: File) {
         try {
             val context = getApplication<Application>()
@@ -207,12 +236,40 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
     }
 
+    fun setCloudService(service: String) {
+        getApplication<Application>().selectService(service)
+        cloudService = getService(getApplication())
+        addLog("切换云端服务为: $service")
+    }
+
+    fun setSupabaseCredentials(url: String, anonKey: String) {
+        getApplication<Application>().setSupabaseCredentials(url, anonKey)
+        if (getApplication<Application>().getSelectedService() == "supabase") {
+            cloudService = getService(getApplication())
+            addLog("更新 Supabase 凭据并重新加载服务")
+        }
+    }
+
+    fun setFirebaseCredentials(projectId: String, apiKey: String) {
+        getApplication<Application>().setFirebaseCredentials(projectId, apiKey)
+        if (getApplication<Application>().getSelectedService() == "firebase") {
+            cloudService = getService(getApplication())
+            addLog("更新 Firebase 凭据并重新加载服务")
+        }
+    }
+
     fun setCustomRecordingPath(path: String) {
         _customRecordingPath.value = path
         val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
         prefs.edit().putString("recording_path", path).apply()
         loadCustomRingtones() // 路径改变，刷新列表
+    }
 
+    fun setDatabaseDirectoryPath(path: String) {
+        _dbDirectoryPath.value = path
+        val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("database_dir_path", path).apply()
+        addLog("数据库目录已更新: $path")
     }
 
     // 计时器 (倒计时闹钟) 相关状态
@@ -298,6 +355,22 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     private val _selectedTtsVoiceName = MutableStateFlow("")
     val selectedTtsVoiceName: StateFlow<String> = _selectedTtsVoiceName.asStateFlow()
 
+    // 在线 TTS 配置（百度语音合成）
+    private val _useOnlineTts = MutableStateFlow(false)
+    val useOnlineTts: StateFlow<Boolean> = _useOnlineTts.asStateFlow()
+
+    private val _baiduApiKey = MutableStateFlow("")
+    val baiduApiKey: StateFlow<String> = _baiduApiKey.asStateFlow()
+
+    private val _baiduSecretKey = MutableStateFlow("")
+    val baiduSecretKey: StateFlow<String> = _baiduSecretKey.asStateFlow()
+
+    private val _baiduVoice = MutableStateFlow(0)
+    val baiduVoice: StateFlow<Int> = _baiduVoice.asStateFlow()
+
+    private val _isPlayingOnlineTts = MutableStateFlow(false)
+    val isPlayingOnlineTts: StateFlow<Boolean> = _isPlayingOnlineTts.asStateFlow()
+
     private fun addLog(message: String) {
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
         val fullMsg = "[$timestamp] $message"
@@ -367,6 +440,18 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         if (ip.isEmpty()) {
             _syncStatus.value = SyncStatus.Error("请输入 IP 地址")
             return
+        }
+        // 事前检查外部存储权限（Android 11+ 需要 MANAGE_EXTERNAL_STORAGE）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                _syncStatus.value = SyncStatus.Error("缺少「所有文件访问权限」，请在系统设置中开启后重试")
+                return
+            }
+        } else {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                _syncStatus.value = SyncStatus.Error("缺少存储写入权限，请在应用权限设置中开启后重试")
+                return
+            }
         }
         _syncStatus.value = SyncStatus.Connecting
         viewModelScope.launch {
@@ -500,12 +585,34 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
             val defaultDir = android.os.Environment.getExternalStorageDirectory().absolutePath + "/0"
             _customRecordingPath.value = defaultDir
         }
+        val savedDbPath = settings.getString("database_dir_path", "") ?: ""
+        _dbDirectoryPath.value = savedDbPath
         // 恢复计时器上次拨盘值
         _timerHours.value = settings.getInt("timer_hours", 0)
         _timerMinutes.value = settings.getInt("timer_minutes", 0)
         _timerSeconds.value = settings.getInt("timer_seconds", 0)
 
-        _autoUpdateEnabled.value = settings.getBoolean("auto_update", true)
+        // 恢复计时器运行状态（关 App 后重新打开时）
+        val timerStatePrefs = getApplication<Application>().getSharedPreferences("timer_state", Context.MODE_PRIVATE)
+        val timerEndMillis = timerStatePrefs.getLong("timer_end_millis", 0L)
+        val now = System.currentTimeMillis()
+        if (timerEndMillis > now) {
+            // 计时器还在跑，恢复 UI 状态
+            val remainingSec = ((timerEndMillis - now) / 1000).toInt()
+            _timerRemainingSeconds.value = remainingSec
+            _isTimerRunning.value = true
+            timerJobInstance?.cancel()
+            timerJobInstance = viewModelScope.launch {
+                while (_timerRemainingSeconds.value > 0) {
+                    delay(1000)
+                    _timerRemainingSeconds.value -= 1
+                }
+                _isTimerRunning.value = false
+                _isTimerRinging.value = true
+            }
+        }
+
+        _autoUpdateEnabled.value = settings.getBoolean("auto_update", false)
 
         if (_autoUpdateEnabled.value) {
             checkForUpdates()
@@ -517,9 +624,17 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         _selectedTtsEngine.value = savedEngine
         _selectedTtsVoiceName.value = savedVoice
         addLog("恢复 TTS 引擎: $savedEngine, 语音: $savedVoice")
+
+        // 恢复在线 TTS 配置
+        val ttsPrefs = getApplication<Application>().getSharedPreferences("tts_prefs", Context.MODE_PRIVATE)
+        _useOnlineTts.value = ttsPrefs.getBoolean("use_online_tts", false)
+        _baiduApiKey.value = ttsPrefs.getString("baidu_api_key", "") ?: ""
+        _baiduSecretKey.value = ttsPrefs.getString("baidu_secret_key", "") ?: ""
+        _baiduVoice.value = ttsPrefs.getInt("baidu_voice", 0)
         
-        // 扫描可用 TTS 引擎
-        scanTtsEngines()
+        // 注意：不在此处扫描引擎！某些设备（如 Realme/Oppo）上，提前创建临时 TTS 实例
+        // 会与后续的主 TTS 实例冲突，导致 onInit 回调永远不触发。
+        // 引擎扫描已移到 onInit 成功回调中执行。
         
         // 如果保存了引擎包名，则使用该引擎创建 TTS 实例，否则使用默认引擎
         val enginePackage = if (savedEngine.isNotEmpty()) savedEngine else null
@@ -527,10 +642,28 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         val defaultEngine = tts?.defaultEngine ?: "未知"
         addLog("系统默认 TTS 引擎: $defaultEngine")
 
+        // 注册发音进度监听，诊断引擎是否真正发音
+        try {
+            tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(uttId: String?) {
+                    lastSpeakStarted = true
+                    lastSpeakTimeMs = System.currentTimeMillis()
+                    addLog("✓ TTS 引擎确认开始发音 (utterance: $uttId)")
+                }
+                override fun onDone(uttId: String?) {
+                    addLog("✓ TTS 引擎发音完成 (utterance: $uttId)")
+                }
+                override fun onError(uttId: String?) {
+                    addLog("✗ TTS 引擎发音出错 (utterance: $uttId)")
+                }
+            })
+        } catch (_: Exception) {}
+
         val db = AlarmDatabase.getDatabase(application, viewModelScope)
         val dao = db.alarmDao()
         repository = AlarmRepository(dao, db.checkinDao())
         checkInDao = db.checkinDao()
+        cloudShareDao = db.cloudShareDao()
 
         viewModelScope.launch {
             repository.allGroups.collect { _groups.value = it }
@@ -548,12 +681,27 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         viewModelScope.launch {
             repository.allHourlyChimes.collect { _chimes.value = it }
         }
-        loadCustomRingtones()
+        viewModelScope.launch {
+            cloudShareDao.getAllRecordsFlow().collect { _cloudShareRecords.value = it }
+        }
         loadSystemRingtones()
         loadLocalRecordings() // 在初始化时自动触发读取本地录音机保存的列表
 
         // 启动后台闹钟监控服务，在状态栏显示闹钟倒计时通知
         refreshBackgroundMonitor()
+
+        // 注册计时器关闭广播（AlarmService 停止计时器响铃时重置 UI 状态）
+        val timerDismissedReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                _isTimerRunning.value = false
+                _isTimerRinging.value = false
+                _timerRemainingSeconds.value = 0
+            }
+        }
+        getApplication<Application>().registerReceiver(
+            timerDismissedReceiver,
+            IntentFilter("com.example.TIMER_DISMISSED")
+        )
     }
 
     // 扫描系统录音机路径，列出所有保存的录音文件，包含小米、华为、OPPO、VIVO等主流机型的深度适配
@@ -944,6 +1092,33 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
             repository.insertGroup(AlarmGroup(name = name, isEnabled = true))
         }
 
+    }
+
+    fun clearAllLocalData() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 删除所有闹钟组（会同时删除组内闹钟）
+                val allGroups = repository.getGroupList()
+                for (g in allGroups) {
+                    deleteGroup(g)
+                }
+                // 删除所有打卡组和任务
+                val allCheckInGroups = checkInDao.getAllGroups()
+                for (g in allCheckInGroups) {
+                    val tasks = checkInDao.getTasksByGroup(g.id)
+                    for (t in tasks) checkInDao.deleteTask(t)
+                    checkInDao.deleteGroup(g)
+                }
+                // 删除云端分享记录
+                val currentRecords = _cloudShareRecords.value
+                for (r in currentRecords) {
+                    cloudShareDao.deleteRecord(r)
+                }
+                addLog("clearAllLocalData: done")
+            } catch (e: Exception) {
+                addLog("clearAllLocalData failed: ${e.message}")
+            }
+        }
     }
 
     fun deleteGroup(group: AlarmGroup) {
@@ -1471,11 +1646,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
 
                 configJson?.let { jsonStr ->
                     val root = JSONObject(jsonStr)
-                    
-                    // Clear existing data (Room cascade delete will handle alarms)
                     val db = AlarmDatabase.getDatabase(getApplication(), viewModelScope)
-                    val existingGroups = db.alarmDao().getAllGroups()
-                    existingGroups.forEach { db.alarmDao().deleteGroup(it) }
 
                     // Import Groups and map old IDs to new IDs
                     val idMap = mutableMapOf<Long, Long>()
@@ -1601,32 +1772,64 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
 
     private var ttsPitch = 1.0f
     private var ttsRate = 1.0f
+    private var lastSpeakTimeMs = 0L
+    private var lastSpeakStarted = false
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             addLog("TTS 引擎初始化成功")
+
+            // 主 TTS 初始化后重新扫描引擎（tempTts 可能因 null listener 漏掉某些引擎）
+            scanTtsEngines()
+
             // 尝试使用更精确的中国大陆区域设置
             val result = tts?.setLanguage(Locale.CHINA)
             addLog("TTS 语言设置结果: $result")
-            
-            // 配置音频属性
+
+            // 配置音频属性 — 使用 USAGE_ALARM 确保在 Realme 等设备上走扬声器
+            // USAGE_ASSISTANCE_SONIFICATION 在部分系统上可能被路由到听筒/蓝牙
             val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
             tts?.setAudioAttributes(audioAttributes)
+            
+            // 记录当前使用的语音/引擎信息，便于诊断
+            addLog("当前语音: ${tts?.voice?.name ?: "未设置"}, 引擎: ${tts?.defaultEngine ?: "未知"}")
 
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                addLog("警告: 缺失中文语音包，尝试备用中文设置...")
-                tts?.setLanguage(Locale.CHINESE)
+                addLog("警告: 当前引擎缺失中文语音包，尝试从可用语音中查找中文语音...")
+                // 从引擎支持的语音列表中寻找中文语音
+                val chineseVoice = tts?.voices?.find { voice ->
+                    voice.locale.also { loc ->
+                        loc.language == "zh" ||
+                        loc.language == "cmn" ||
+                        loc.displayLanguage?.startsWith("中文") == true ||
+                        loc.displayLanguage?.startsWith("Chinese") == true
+                    } != null
+                }
+                if (chineseVoice != null) {
+                    val voiceResult = tts?.setVoice(chineseVoice)
+                    addLog("自动选用中文语音: ${chineseVoice.name}, 结果: $voiceResult")
+                } else {
+                    addLog("错误: 当前引擎没有可用中文语音，请前往系统 TTS 设置下载中文语音数据")
+                    // 显示 Toast 提醒用户
+                    try {
+                        android.widget.Toast.makeText(
+                            getApplication(),
+                            "当前 TTS 引擎没有中文语音，请在系统设置中下载",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    } catch (_: Exception) {}
+                }
             }
             // 初始化成功后，应用一次默认参数
             tts?.setPitch(ttsPitch)
             tts?.setSpeechRate(ttsRate)
-            
+
             // 扫描当前引擎支持的语音列表
             scanAvailableVoices()
-            
+
             // 重启后恢复上次选择的语音
             val savedVoice = _selectedTtsVoiceName.value
             if (savedVoice.isNotEmpty()) {
@@ -1639,6 +1842,20 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 }
             }
             isTtsReady = true
+            addLog("TTS 已就绪，可以播放")
+
+            // 如果有等待播放的测试文本，立即播放
+            pendingTtsText?.let { text ->
+                addLog("播放排队中的测试语音: $text")
+                val params = Bundle().apply {
+                    putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+                }
+                tts?.setPitch(ttsPitch)
+                tts?.setSpeechRate(ttsRate)
+                val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "pending_test")
+                addLog("排队播放结果: $result")
+                pendingTtsText = null
+            }
         } else {
             addLog("错误: TTS 初始化失败，状态码: $status")
         }
@@ -1647,23 +1864,181 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     fun testTts(hour: Int) {
         val text = "现在是北京时间${hour}点整"
         addLog("尝试播放测试语音: $text (音调:$ttsPitch, 语速:$ttsRate)")
+
+        // 如果启用了在线 TTS，使用百度语音合成
+        if (_useOnlineTts.value) {
+            playOnlineTts(text)
+            return
+        }
+        // 构建带音量的参数包（与 AlarmService 一致），避免 null 导致某些引擎音量异常
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+        }
         if (isTtsReady) {
             // 播放前再次强制设置参数，解决部分引擎在长时空闲后重置的问题
             tts?.setPitch(ttsPitch)
             tts?.setSpeechRate(ttsRate)
+            // 设置用户选的语音
+            applySelectedVoice()
+            addLog("当前语音: ${tts?.voice?.name ?: "无"}, 引擎: ${tts?.defaultEngine ?: "未知"}")
+
+            // 重置发音监听标记，用于检测引擎是否真正开始发音
+            lastSpeakStarted = false
+            lastSpeakTimeMs = System.currentTimeMillis()
             
-            val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "test_chime")
+            val utteranceId = "test_chime_${System.currentTimeMillis()}"
+            val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
             if (result == TextToSpeech.ERROR) {
                 addLog("错误: speak 接口调用返回 ERROR")
             } else {
                 addLog("播放指令已发送，等待系统发声...")
             }
+            
+            // 3 秒后检查引擎是否真的开始发音，如果没开始则回退到提示音
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (!lastSpeakStarted) {
+                    addLog("⚠ TTS 引擎 3 秒内未开始发音（可能是引擎不可用），播放提示音回退")
+                    try {
+                        val mp = android.media.MediaPlayer()
+                        val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                        mp.setDataSource(getApplication(), uri)
+                        mp.setAudioAttributes(
+                            android.media.AudioAttributes.Builder()
+                                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        )
+                        mp.setOnCompletionListener { it.release() }
+                        mp.prepare()
+                        mp.start()
+                        addLog("✓ 已播放通知提示音作为回退")
+                    } catch (e: Exception) {
+                        addLog("播放回退提示音失败: ${e.message}")
+                    }
+                }
+            }, 3000)
         } else {
-            addLog("警告: TTS 尚未就绪，尝试强制恢复播放")
-            tts?.setLanguage(Locale.CHINA)
-            tts?.setPitch(ttsPitch)
-            tts?.setSpeechRate(ttsRate)
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "retry_test")
+            addLog("TTS 尚未就绪（引擎绑定中），将排队等待播放")
+            pendingTtsText = text
+            // 启动协程等待 TTS 就绪后自动重试（最多等待 10 秒）
+            viewModelScope.launch {
+                var waited = 0
+                while (!isTtsReady && waited < 100) {  // 100 × 100ms = 10s
+                    delay(100)
+                    waited++
+                }
+                if (isTtsReady) {
+                    val retryText = pendingTtsText ?: return@launch
+                    addLog("TTS 已就绪，播放排队中的测试语音: $retryText")
+                    tts?.setPitch(ttsPitch)
+                    tts?.setSpeechRate(ttsRate)
+                    applySelectedVoice()
+                    addLog("排队播放, 当前语音: ${tts?.voice?.name ?: "无"}")
+                    val result = tts?.speak(retryText, TextToSpeech.QUEUE_FLUSH, params, "retry_test")
+                    addLog("排队播放结果: $result")
+                    pendingTtsText = null
+                } else {
+                    addLog("等待 TTS 就绪超时（10秒），请检查系统 TTS 引擎是否正常")
+                }
+            }
+        }
+    }
+
+    /**
+     * 测试缓存报时语音：清空 → 重新合成 → MediaPlayer 播放验证
+     * 确保不受同步文件干扰，验证 synthesizeToFile 在 Realme 上可用
+     */
+    fun testChimeCacheFiles() {
+        addLog("======= 开始测试缓存报时语音 =======")
+        val ctx = getApplication<Application>()
+        val workerScope = viewModelScope
+        workerScope.launch(Dispatchers.IO) {
+            try {
+                // 1. 清空缓存标记和所有文件
+                ChimeAudioPreloader.resetCacheFlag(ctx)
+                addLog("已重置缓存标记")
+                for (h in 0..23) {
+                    val f = ChimeAudioPreloader.file(ctx, h)
+                    if (f.exists()) {
+                        f.delete()
+                        addLog("已删除: ${f.name}")
+                    }
+                }
+                addLog("24 个缓存文件已全部清空")
+
+                // 2. 重新触发合成（synthesizeToFile）
+                addLog("开始通过 synthesizeToFile 重新合成...")
+                ChimeAudioPreloader.ensure(ctx)
+
+                // 3. 等待合成完成（轮询最多 15 秒）
+                addLog("等待合成完成...")
+                var waited = 0
+                val maxWait = 150 // 15秒 = 150 × 100ms
+                var allExist = false
+                while (waited < maxWait) {
+                    delay(100)
+                    waited++
+                    val existing = (0..23).count { h -> ChimeAudioPreloader.file(ctx, h).exists() }
+                    if (existing == 24) {
+                        allExist = true
+                        addLog("24 个文件合成完毕（等待 ${(waited * 100)}ms）")
+                        break
+                    }
+                }
+
+                if (!allExist) {
+                    val count = (0..23).count { h -> ChimeAudioPreloader.file(ctx, h).exists() }
+                    addLog("⚠ 超时 ${maxWait * 100}ms，仅有 $count/24 个文件就绪，继续播放已有文件")
+                } else {
+                    // 标记缓存就绪
+                    ctx.getSharedPreferences("chime_prefs", Context.MODE_PRIVATE)
+                        .edit().putBoolean("chime_cache_ready", true).apply()
+                }
+
+                // 4. 用 MediaPlayer 播放验证（只播当前小时，不挨个读）
+                addLog("===== 开始播放验证 =====")
+                var playedCount = 0
+                var failedCount = 0
+                val testHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val hourToTest = if (ChimeAudioPreloader.file(ctx, testHour).exists()) testHour
+                                 else (0..23).firstOrNull { ChimeAudioPreloader.file(ctx, it).exists() } ?: 0
+                val testFile = ChimeAudioPreloader.file(ctx, hourToTest)
+                if (!testFile.exists()) {
+                    addLog("跳过播放：无可用缓存文件")
+                    failedCount++
+                } else {
+                    try {
+                        addLog("播放 ${hourToTest}:00...")
+                        val mp = MediaPlayer().apply {
+                            setDataSource(testFile.absolutePath)
+                            setAudioAttributes(
+                                AudioAttributes.Builder()
+                                    .setUsage(AudioAttributes.USAGE_ALARM)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                    .build()
+                            )
+                            setOnCompletionListener {
+                                it.release()
+                                addLog("✓ ${hourToTest}:00 播放完成")
+                            }
+                            setOnErrorListener { _, what, extra ->
+                                addLog("✗ ${hourToTest}:00 播放出错 (what=$what, extra=$extra)")
+                                release()
+                                true
+                            }
+                            prepare()
+                            start()
+                        }
+                        playedCount++
+                    } catch (e: Exception) {
+                        addLog("✗ ${hourToTest}:00 播放失败: ${e.message}")
+                        failedCount++
+                    }
+                }
+                addLog("======= 测试完成: 成功 $playedCount 段, 失败 $failedCount 段 =======")
+            } catch (e: Exception) {
+                addLog("测试缓存报时语音异常: ${e.message}")
+            }
         }
     }
 
@@ -1682,15 +2057,25 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     // 扫描系统中所有可用的 TTS 引擎
     fun scanTtsEngines() {
         try {
-            // 修复：不要直接使用成员变量 tts（可能尚未初始化），而是创建一个临时实例来获取所有引擎
-            val tempTts = TextToSpeech(getApplication(), null)
-            val enginesList = tempTts.engines
+            val enginesList: MutableList<android.speech.tts.TextToSpeech.EngineInfo>
+
+            // 如果主 TTS 已初始化，优先通过主实例获取引擎列表（避免创建临时实例造成冲突）
+            if (tts != null) {
+                enginesList = tts!!.engines.toMutableList()
+                addLog("通过主 TTS 实例获取引擎列表 (${enginesList.size} 个)")
+            } else {
+                // 主 TTS 不可用时，通过临时实例获取
+                val tempTts = TextToSpeech(getApplication(), null)
+                enginesList = tempTts.engines.toMutableList()
+                tempTts.shutdown()
+                addLog("通过临时 TTS 实例获取引擎列表")
+            }
+
             _availableTtsEngines.value = enginesList
             addLog("扫描到 ${enginesList.size} 个 TTS 引擎")
             enginesList.forEach { engine ->
                 addLog("  TTS 引擎: ${engine.label} (${engine.name})")
             }
-            tempTts.shutdown()
         } catch (e: Exception) {
             addLog("扫描 TTS 引擎出错: ${e.message}")
         }
@@ -1716,6 +2101,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         if (engineName == _selectedTtsEngine.value) return
         addLog("切换 TTS 引擎至: $engineName")
         
+        // 切换引擎，清除之前排队的测试请求
+        pendingTtsText = null
+        
         // 保存偏好
         val prefs = getApplication<Application>().getSharedPreferences("tts_prefs", Context.MODE_PRIVATE)
         prefs.edit().putString("tts_engine", engineName).apply()
@@ -1731,6 +2119,19 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         val enginePackage = if (engineName.isNotEmpty()) engineName else null
         tts = TextToSpeech(getApplication(), this, enginePackage)
         addLog("已使用新引擎重新创建 TTS 实例")
+    }
+
+    // 重新应用用户选择的语音（在 speak 前调用，确保引擎使用的是用户选的那个语音）
+    private fun applySelectedVoice() {
+        val savedVoice = _selectedTtsVoiceName.value
+        if (savedVoice.isNotEmpty()) {
+            val matched = _availableVoices.value.find { it.name == savedVoice }
+            if (matched != null) {
+                tts?.setVoice(matched)
+            } else {
+                addLog("applySelectedVoice: 未匹配到语音: $savedVoice")
+            }
+        }
     }
 
     // 设置 TTS 语音：保存偏好、调用 setVoice
@@ -1754,6 +2155,17 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         } else {
             addLog("TTS 尚未就绪，语音将在下次初始化时应用")
         }
+        
+        // 通知后台 AlarmService 同步更新语音
+        val intent = Intent(getApplication(), AlarmService::class.java).apply {
+            action = "UPDATE_TTS_VOICE"
+            putExtra("TTS_VOICE_NAME", voiceName)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getApplication<Application>().startForegroundService(intent)
+        } else {
+            getApplication<Application>().startService(intent)
+        }
     }
 
     // 刷新后台闹钟监控服务
@@ -1768,12 +2180,166 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
     }
 
+    // ────────── 在线 TTS（百度语音合成）相关 ──────────
+
+    fun setUseOnlineTts(enabled: Boolean) {
+        _useOnlineTts.value = enabled
+        val prefs = getApplication<Application>().getSharedPreferences("tts_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("use_online_tts", enabled).apply()
+        addLog(if (enabled) "切换到在线 TTS 模式" else "切换到系统 TTS 模式")
+    }
+
+    fun setBaiduCredentials(apiKey: String, secretKey: String) {
+        _baiduApiKey.value = apiKey
+        _baiduSecretKey.value = secretKey
+        val prefs = getApplication<Application>().getSharedPreferences("tts_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("baidu_api_key", apiKey)
+            .putString("baidu_secret_key", secretKey)
+            .apply()
+        addLog("已保存百度 TTS API 凭据")
+    }
+
+    fun setBaiduVoice(voice: Int) {
+        _baiduVoice.value = voice
+        val prefs = getApplication<Application>().getSharedPreferences("tts_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putInt("baidu_voice", voice).apply()
+        val voiceName = baiduTtsClient.getVoiceList().find { it.first == voice }?.second ?: voice.toString()
+        addLog("切换百度 TTS 发音人至: $voiceName")
+    }
+
+    /**
+     * 使用在线 TTS 播放语音（百度语音合成）
+     * 在后台 IO 线程获取 token 和合成音频，主线程播放
+     */
+    private fun playOnlineTts(text: String) {
+        val apiKey = _baiduApiKey.value
+        val secretKey = _baiduSecretKey.value
+        val voice = _baiduVoice.value
+
+        if (apiKey.isEmpty() || secretKey.isEmpty()) {
+            addLog("错误: 百度 TTS API Key 或 Secret Key 未设置，请在设置中填写")
+            return
+        }
+
+        _isPlayingOnlineTts.value = true
+        addLog("正在请求百度 TTS 合成: $text (发音人: $voice)")
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 获取 access token
+                val tokenResult = baiduTtsClient.getAccessToken(apiKey, secretKey)
+                if (tokenResult.isFailure) {
+                    addLog("获取百度 token 失败: ${tokenResult.exceptionOrNull()?.message}")
+                    _isPlayingOnlineTts.value = false
+                    // 回退到系统 TTS
+                    launch(Dispatchers.Main) { fallbackToSystemTts(text) }
+                    return@launch
+                }
+
+                val token = tokenResult.getOrThrow()
+                addLog("百度 token 获取成功")
+
+                // 语音合成
+                val synthResult = baiduTtsClient.synthesize(text, token, voice = voice)
+                if (synthResult.isFailure) {
+                    addLog("百度 TTS 合成失败: ${synthResult.exceptionOrNull()?.message}")
+                    _isPlayingOnlineTts.value = false
+                    launch(Dispatchers.Main) { fallbackToSystemTts(text) }
+                    return@launch
+                }
+
+                val audioData = synthResult.getOrThrow()
+                addLog("百度 TTS 合成成功，音频大小: ${audioData.size} 字节")
+
+                // 切回主线程播放
+                withContext(Dispatchers.Main) {
+                    playAudioBytes(audioData)
+                    _isPlayingOnlineTts.value = false
+                }
+            } catch (e: Exception) {
+                addLog("在线 TTS 异常: ${e.message}")
+                _isPlayingOnlineTts.value = false
+                // 回退到系统 TTS
+                withContext(Dispatchers.Main) { fallbackToSystemTts(text) }
+            }
+        }
+    }
+
+    /** 播放字节音频（写入临时文件后使用 MediaPlayer）*/
+    private var onlineTtsMediaPlayer: MediaPlayer? = null
+
+    private fun playAudioBytes(audioData: ByteArray) {
+        try {
+            // 停止旧的播放器
+            onlineTtsMediaPlayer?.let {
+                try {
+                    it.stop()
+                    it.release()
+                } catch (_: Exception) {}
+            }
+            onlineTtsMediaPlayer = null
+
+            // 写入临时文件
+            val tempFile = File(getApplication<Application>().cacheDir, "online_tts_${System.currentTimeMillis()}.mp3")
+            tempFile.writeBytes(audioData)
+            tempFile.deleteOnExit()
+
+            val player = MediaPlayer().apply {
+                setDataSource(tempFile.absolutePath)
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    addLog("在线 TTS 开始播放")
+                }
+                setOnCompletionListener {
+                    release()
+                    tempFile.delete()
+                    addLog("在线 TTS 播放完成")
+                }
+                setOnErrorListener { _, what, extra ->
+                    addLog("在线 TTS 播放错误: what=$what extra=$extra")
+                    tempFile.delete()
+                    true
+                }
+                prepareAsync()
+            }
+            onlineTtsMediaPlayer = player
+        } catch (e: Exception) {
+            addLog("播放在线 TTS 音频失败: ${e.message}")
+        }
+    }
+
+    /** 回退到系统 TTS */
+    private fun fallbackToSystemTts(text: String) {
+        addLog("回退到系统 TTS")
+        if (isTtsReady) {
+            val params = Bundle().apply {
+                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+            }
+            tts?.setPitch(ttsPitch)
+            tts?.setSpeechRate(ttsRate)
+            applySelectedVoice()
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "online_fallback")
+        }
+    }
+
     // 计时器相关操作
     fun startTimer(durationSeconds: Int) {
         if (durationSeconds <= 0) return
         timerJobInstance?.cancel()
         _timerRemainingSeconds.value = durationSeconds
         _isTimerRunning.value = true
+
+        // 保存计时器结束时间戳，关 App 重新打开后恢复
+        getApplication<Application>().getSharedPreferences("timer_state", Context.MODE_PRIVATE).edit {
+            putLong("timer_end_millis", System.currentTimeMillis() + durationSeconds * 1000L)
+        }
 
         // 启动 AlarmService 前台倒计时（服务端倒计时 + 响铃）
         val intent = Intent(getApplication(), AlarmService::class.java).apply {
@@ -1805,6 +2371,11 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         _isTimerRinging.value = false
         _timerRemainingSeconds.value = 0
 
+        // 清除保存的计时器结束时间
+        getApplication<Application>().getSharedPreferences("timer_state", Context.MODE_PRIVATE).edit {
+            remove("timer_end_millis")
+        }
+
         // 通知 AlarmService 停止倒计时
         val intent = Intent(getApplication(), AlarmService::class.java).apply {
             action = "STOP_COUNTDOWN"
@@ -1824,14 +2395,14 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         _isTimerRinging.value = false
         _timerRemainingSeconds.value = 0
 
-        val intent = Intent(getApplication(), AlarmService::class.java).apply {
-            action = "STOP_RINGING"
+        // 清除保存的计时器结束时间
+        getApplication<Application>().getSharedPreferences("timer_state", Context.MODE_PRIVATE).edit {
+            remove("timer_end_millis")
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            getApplication<Application>().startForegroundService(intent)
-        } else {
-            getApplication<Application>().startService(intent)
-        }
+
+        // 不再发送 STOP_RINGING intent：AlarmActiveActivity 已通过 dismissAlarm()
+        // 触发 stopRinging() 并销毁了服务。这里再发 startForegroundService()
+        // 会导致新启动的服务没调 startForeground() 直接 stopSelf() 闪退
     }
 
     private fun onTimerFinished() {
@@ -1946,6 +2517,82 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
     }
 
+    /**
+     * 复制打卡任务项：修改原任务名追加「X点第一次打卡」，
+     * 新建 copies 个任务，时间依次偏移 intervalMinutes，名称追加「X点第N次打卡」
+     * 时间转为中文数字（TTS友好）
+     */
+    fun duplicateCheckInTask(task: CheckInTaskEntity, group: CheckInGroupEntity, copies: Int, intervalMinutes: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val chineseNumerals = arrayOf(
+                "零", "一", "二", "三", "四", "五", "六", "七", "八", "九",
+                "十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九",
+                "二十", "二十一", "二十二", "二十三"
+            )
+            fun hourToChinese(hour: Int): String = if (hour in 0..23) chineseNumerals[hour] else hour.toString()
+            fun minuteToChinese(minute: Int): String {
+                if (minute < 10) return chineseNumerals[minute]
+                if (minute < 20) return "十${if (minute > 10) chineseNumerals[minute - 10] else ""}"
+                val tens = minute / 10
+                val ones = minute % 10
+                val tensStr = chineseNumerals[tens]
+                return if (ones == 0) "${tensStr}十" else "${tensStr}十${chineseNumerals[ones]}"
+            }
+
+            // 原项改名：追加 "十点第一次打卡"
+            val originalTimeStr = if (task.minute == 0) {
+                "${hourToChinese(task.hour)}点"
+            } else {
+                "${hourToChinese(task.hour)}点${minuteToChinese(task.minute)}分"
+            }
+            val originalNewName = "${task.name}${originalTimeStr}第一次打卡"
+            checkInDao.updateTask(task.copy(name = originalNewName))
+
+            // 创建 copies 个新任务，时间依次偏移
+            val newTasks = (1..copies).map { i ->
+                var totalMin = task.hour * 60 + task.minute + i * intervalMinutes
+                // 支持跨天取模
+                totalMin = ((totalMin % (24 * 60)) + 24 * 60) % (24 * 60)
+                val newHour = totalMin / 60
+                val newMinute = totalMin % 60
+                val timeStr = if (newMinute == 0) {
+                    "${hourToChinese(newHour)}点"
+                } else {
+                    "${hourToChinese(newHour)}点${minuteToChinese(newMinute)}分"
+                }
+                val orderSuffix = when {
+                    i < 10 -> "第${chineseNumerals[i]}次打卡"
+                    else -> "第${i}次打卡"
+                }
+                CheckInTaskEntity(
+                    id = 0,
+                    groupId = task.groupId,
+                    name = "${task.name}${timeStr}${orderSuffix}",
+                    hour = newHour,
+                    minute = newMinute,
+                    orderIndex = task.orderIndex + i,
+                    ringtonePath = task.ringtonePath,
+                    useTts = task.useTts
+                )
+            }
+            checkInDao.insertTasks(newTasks)
+            loadAllCheckInTasks()
+        }
+    }
+
+    /** 向已有的打卡组中批量添加任务项 */
+    fun addCheckInTasks(groupId: Long, tasks: List<CheckInTaskEntity>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existingTasks = checkInDao.getTasksByGroup(groupId)
+            val maxOrder = existingTasks.maxOfOrNull { it.orderIndex } ?: -1
+            val newTasks = tasks.mapIndexed { index, task ->
+                task.copy(id = 0, groupId = groupId, orderIndex = maxOrder + 1 + index)
+            }
+            checkInDao.insertTasks(newTasks)
+            loadAllCheckInTasks()
+        }
+    }
+
     fun deleteCheckInGroup(group: CheckInGroupEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             // 如果有绑定的闹钟组，一并删除
@@ -2043,6 +2690,252 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
             val insertId = repository.insertAlarm(alarm)
             val finalAlarm = alarm.copy(id = insertId)
             AlarmScheduler.scheduleAlarm(getApplication(), finalAlarm, null)
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    // 云端分享（Firebase）
+    // ═══════════════════════════════════════════════
+
+    private val _cloudShareCode = MutableStateFlow<String?>(null)
+    val cloudShareCode: StateFlow<String?> = _cloudShareCode.asStateFlow()
+
+    private val _cloudShareLoading = MutableStateFlow(false)
+    val cloudShareLoading: StateFlow<Boolean> = _cloudShareLoading.asStateFlow()
+
+    private val _cloudShareRecords = MutableStateFlow<List<CloudShareRecord>>(emptyList())
+    val cloudShareRecords: StateFlow<List<CloudShareRecord>> = _cloudShareRecords.asStateFlow()
+
+    private val _cloudImportResult = MutableStateFlow<String?>(null)
+    val cloudImportResult: StateFlow<String?> = _cloudImportResult.asStateFlow()
+
+    /** 将指定闹钟组及其闹钟上传到云端，返回分享码 */
+    suspend fun shareAlarmGroupToCloud(group: AlarmGroup): String? {
+        _cloudShareLoading.value = true
+        _cloudShareCode.value = null
+        return withContext(Dispatchers.IO) {
+            try {
+                val alarmsInGroup = repository.getAlarmsByGroup(group.id)
+                val alarmsJson = JSONArray()
+                alarmsInGroup.forEach { a ->
+                    alarmsJson.put(JSONObject().apply {
+                        put("hour", a.hour)
+                        put("minute", a.minute)
+                        put("daysOfWeek", a.daysOfWeek)
+                        put("isEnabled", a.isEnabled)
+                        put("label", a.label)
+                        put("ringtonePath", a.ringtonePath ?: "")
+                        put("vibrate", a.vibrate)
+                    })
+                }
+                val jsonString = cloudService.buildAlarmConfigJson(group.name, alarmsJson)
+                val code = cloudService.uploadConfig(jsonString)
+                if (code != null) {
+                    _cloudShareCode.value = code
+                    addLog("云端分享成功：${group.name} → $code")
+                    val alarmsInGroupAgain = repository.getAlarmsByGroup(group.id)
+                    val record = CloudShareRecord(
+                        shareCode = code,
+                        groupName = group.name,
+                        itemCount = alarmsInGroupAgain.size,
+                        groupType = "alarm",
+                        sourceGroupId = group.id
+                    )
+                    cloudShareDao.insertRecord(record)
+                } else {
+                    addLog("云端分享失败：上传返回空")
+                }
+                code
+            } catch (e: Exception) {
+                addLog("云端分享异常：${e.message}")
+                null
+            } finally {
+                _cloudShareLoading.value = false
+            }
+        }
+    }
+
+    /** 从云端通过分享码导入闹钟组 */
+    suspend fun importAlarmGroupFromCloud(shareCode: String): Boolean {
+        _cloudShareLoading.value = true
+        return withContext(Dispatchers.IO) {
+            try {
+                val jsonString = cloudService.downloadConfig(shareCode)
+                if (jsonString == null) {
+                    _cloudImportResult.value = "下载失败，请检查分享码是否正确"
+                    addLog("云端导入失败：下载返回空 (code=$shareCode)")
+                    return@withContext false
+                }
+
+                val root = JSONObject(jsonString)
+                val exportType = root.optString("exportType", "")
+                if (exportType != "alarm_group") {
+                    _cloudImportResult.value = "数据格式不正确"
+                    return@withContext false
+                }
+
+                val groupName = root.optString("groupName", "导入的闹钟组")
+                val alarmsArr = root.optJSONArray("alarms") ?: JSONArray()
+
+                // 创建闹钟组
+                val newGroupId = repository.insertGroup(
+                    AlarmGroup(name = groupName, isEnabled = true)
+                )
+
+                // 创建闹钟
+                for (i in 0 until alarmsArr.length()) {
+                    val a = alarmsArr.getJSONObject(i)
+                    val alarm = Alarm(
+                        groupId = newGroupId,
+                        hour = a.getInt("hour"),
+                        minute = a.getInt("minute"),
+                        daysOfWeek = a.optString("daysOfWeek", "1,2,3,4,5,6,7"),
+                        isEnabled = a.optBoolean("isEnabled", true),
+                        label = a.optString("label", ""),
+                        ringtonePath = a.optString("ringtonePath", "").ifEmpty { null },
+                        vibrate = a.optBoolean("vibrate", true)
+                    )
+                    val insertId = repository.insertAlarm(alarm)
+                    val finalAlarm = alarm.copy(id = insertId)
+                    // 调度闹钟
+                    val parentGroup = _groups.value.find { it.id == newGroupId }
+                    AlarmScheduler.scheduleAlarm(getApplication(), finalAlarm, parentGroup)
+                }
+
+                _cloudImportResult.value = "成功导入「$groupName」（${alarmsArr.length()} 个闹钟）"
+                addLog("云端导入成功：$groupName (${alarmsArr.length()} alarms, code=$shareCode)")
+                true
+            } catch (e: Exception) {
+                _cloudImportResult.value = "导入失败：${e.message}"
+                addLog("云端导入异常：${e.message}")
+                false
+            } finally {
+                _cloudShareLoading.value = false
+            }
+        }
+    }
+
+    /** 从云端通过分享码导入打卡组 */
+    suspend fun importCheckInGroupFromCloud(shareCode: String): Boolean {
+        _cloudShareLoading.value = true
+        return withContext(Dispatchers.IO) {
+            try {
+                val jsonString = cloudService.downloadConfig(shareCode)
+                if (jsonString == null) {
+                    _cloudImportResult.value = "下载失败，请检查分享码是否正确"
+                    addLog("云端导入打卡组失败：下载返回空 (code=$shareCode)")
+                    return@withContext false
+                }
+
+                val parsed = cloudService.parseCheckInConfig(jsonString)
+                if (parsed == null) {
+                    _cloudImportResult.value = "数据格式不正确（不是打卡组数据）"
+                    return@withContext false
+                }
+
+                val (groupName, tasksArr) = parsed
+                val taskInputs = mutableListOf<CheckInTaskInput>()
+                for (i in 0 until tasksArr.length()) {
+                    val t = tasksArr.getJSONObject(i)
+                    taskInputs.add(
+                        CheckInTaskInput(
+                            name = t.optString("name", "任务${i + 1}"),
+                            hour = t.optInt("hour", 8).toString(),
+                            minute = t.optInt("minute", 0).toString(),
+                            ringtonePath = t.optString("ringtonePath", "").ifEmpty { null },
+                            useTts = t.optBoolean("useTts", false)
+                        )
+                    )
+                }
+
+                addCheckInGroup(groupName, taskInputs)
+
+                _cloudImportResult.value = "成功导入打卡组「$groupName」（${taskInputs.size} 个任务）"
+                addLog("云端导入打卡组成功：$groupName (${taskInputs.size} tasks, code=$shareCode)")
+                true
+            } catch (e: Exception) {
+                _cloudImportResult.value = "导入失败：${e.message}"
+                addLog("云端导入打卡组异常：${e.message}")
+                false
+            } finally {
+                _cloudShareLoading.value = false
+            }
+        }
+    }
+
+    /** 将指定打卡组及其任务上传到云端，返回分享码 */
+    suspend fun shareCheckInGroupToCloud(group: CheckInGroupEntity, tasks: List<CheckInTaskEntity>): String? {
+        _cloudShareLoading.value = true
+        _cloudShareCode.value = null
+        return withContext(Dispatchers.IO) {
+            try {
+                val tasksJson = JSONArray()
+                tasks.forEach { t ->
+                    tasksJson.put(JSONObject().apply {
+                        put("name", t.name)
+                        put("hour", t.hour)
+                        put("minute", t.minute)
+                        put("orderIndex", t.orderIndex)
+                        put("ringtonePath", t.ringtonePath ?: "")
+                        put("useTts", t.useTts)
+                    })
+                }
+                val jsonString = cloudService.buildCheckInConfigJson(group.name, tasksJson)
+                val code = cloudService.uploadConfig(jsonString)
+                if (code != null) {
+                    _cloudShareCode.value = code
+                    val record = CloudShareRecord(
+                        shareCode = code,
+                        groupName = group.name,
+                        itemCount = tasks.size,
+                        groupType = "checkin",
+                        sourceGroupId = group.id
+                    )
+                    cloudShareDao.insertRecord(record)
+                    addLog("云端分享打卡组成功：${group.name} → $code")
+                } else {
+                    addLog("云端分享打卡组失败：上传返回空")
+                }
+                code
+            } catch (e: Exception) {
+                addLog("云端分享打卡组异常：${e.message}")
+                null
+            } finally {
+                _cloudShareLoading.value = false
+            }
+        }
+    }
+
+    /** 清除云端导入结果提示 */
+    fun clearCloudImportResult() {
+        _cloudImportResult.value = null
+    }
+
+    /** 清除云端分享码 */
+    fun clearCloudShareCode() {
+        _cloudShareCode.value = null
+    }
+
+    /** 获取某个组的最近一条分享记录 */
+    suspend fun getLastShareRecordForGroup(groupId: Long, groupType: String): CloudShareRecord? {
+        return cloudShareDao.getLatestRecord(groupId, groupType)
+    }
+
+    /** 删除一条分享记录（仅本地） */
+    suspend fun deleteCloudShareRecord(record: CloudShareRecord) {
+        cloudShareDao.deleteRecord(record)
+    }
+
+    /** 删除分享记录，同时调用云端 API 删除对应的云数据 */
+    suspend fun deleteCloudShareRecordWithCloud(record: CloudShareRecord, cloudSvc: CloudService) {
+        withContext(Dispatchers.IO) {
+            // 先删本地（不论云端结果如何）
+            cloudShareDao.deleteRecord(record)
+            try {
+                cloudSvc.deleteConfig(record.shareCode)
+            } catch (e: Exception) {
+                Log.e("CloudShare", "云端删除失败，本地已删除", e)
+            }
         }
     }
 }

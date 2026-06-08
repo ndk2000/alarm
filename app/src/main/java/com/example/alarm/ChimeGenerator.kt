@@ -207,4 +207,91 @@ object ChimeGenerator {
         Note("C5",  durationSec = 0.6f, decayRate = 3.5f, volume = 0.30f, delayMs = 900),
         Note("A4",  durationSec = 1.2f, decayRate = 2.0f, volume = 0.30f, delayMs = 1100)
     )
+
+    // ── 老式闹钟滴答声 ─────────────────────────────────────────────
+
+    private const val TICK_SAMPLE_RATE = 44100
+    private const val TICK_DURATION_MS = 80 // 每个滴答声 80ms
+    private var tickTockThread: Thread? = null
+    private val tickTockLock = Any()
+
+    /** 生成一个单独的"滴"或"答"声音（机械式短促点击） */
+    private fun generateTick(isTick: Boolean): FloatArray {
+        val nSamples = (TICK_SAMPLE_RATE * TICK_DURATION_MS / 1000).coerceAtLeast(1)
+        val buf = FloatArray(nSamples)
+        // 主频：滴 1500Hz, 答 1200Hz（模拟机械齿轮声）
+        val freq = if (isTick) 1500.0 else 1200.0
+        for (i in 0 until nSamples) {
+            val t = i.toDouble() / TICK_SAMPLE_RATE
+            // 极速衰减包络
+            val envelope = exp(-35.0 * t)
+            // 基波 + 少量泛音（模拟金属撞击）
+            val sample = sin(2.0 * PI * freq * t) * 0.6 +
+                         sin(2.0 * PI * freq * 2.7 * t) * 0.2 +
+                         sin(2.0 * PI * freq * 5.3 * t) * 0.1
+            buf[i] = (sample * envelope * 0.7).toFloat().coerceIn(-1f, 1f)
+        }
+        return buf
+    }
+
+    /**
+     * 持续播放老式机械闹钟滴答声（后台线程循环）
+     * 每 1 秒播放一次（滴-答交替，模拟真实机械钟）
+     */
+    fun playTickTockContinuous() {
+        synchronized(tickTockLock) {
+            // 如果已有线程在播放，不再重复启动
+            if (tickTockThread?.isAlive == true) return
+            tickTockThread = Thread {
+                try {
+                    val tickAudio = generateTick(true)
+                    val tockAudio = generateTick(false)
+                    var isTickNow = true
+                    while (!Thread.currentThread().isInterrupted) {
+                        val audio = if (isTickNow) tickAudio else tockAudio
+                        isTickNow = !isTickNow
+                        val track = AudioTrack.Builder()
+                            .setAudioAttributes(
+                                AudioAttributes.Builder()
+                                    .setUsage(AudioAttributes.USAGE_ALARM)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                    .build()
+                            )
+                            .setAudioFormat(
+                                AudioFormat.Builder()
+                                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                                    .setSampleRate(TICK_SAMPLE_RATE)
+                                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                                    .build()
+                            )
+                            .setBufferSizeInBytes(audio.size * 4)
+                            .setTransferMode(AudioTrack.MODE_STATIC)
+                            .build()
+                        try {
+                            track.write(audio, 0, audio.size, AudioTrack.WRITE_BLOCKING)
+                            track.play()
+                            // 大约 920ms 静默间隔，凑够 1 秒
+                            Thread.sleep(920L)
+                        } finally {
+                            try { track.stop() } catch (_: Exception) {}
+                            try { track.release() } catch (_: Exception) {}
+                        }
+                    }
+                } catch (_: InterruptedException) {
+                    // 正常停止
+                } catch (e: Exception) {
+                    Log.e(TAG, "滴答声播放异常", e)
+                }
+            }.apply { isDaemon = true }
+            tickTockThread!!.start()
+        }
+    }
+
+    /** 停止老式闹钟滴答声 */
+    fun stopTickTock() {
+        synchronized(tickTockLock) {
+            tickTockThread?.interrupt()
+            tickTockThread = null
+        }
+    }
 }

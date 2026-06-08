@@ -1,0 +1,307 @@
+﻿package com.example.ui.dialogs
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
+import com.example.BuildConfig
+import com.example.R
+import com.example.cloud.getSupabaseAnonKey
+import com.example.cloud.getSupabaseUrl
+import com.example.cloud.getCloudPrefs
+import com.example.cloud.selectService
+import com.example.cloud.CloudConfigKeys
+import com.example.util.BatteryOptimizationGuide
+import androidx.compose.ui.draw.clip
+
+@Composable
+fun AppSettingsDialog(
+    theme: Int,
+    lang: String,
+    offsetHours: Int,
+    offsetMinutes: Int,
+    recordingPath: String,
+    autoUpdate: Boolean,
+    onSetTheme: (Int) -> Unit,
+    onSetLanguage: (String) -> Unit,
+    onSetOffsetHours: (Int) -> Unit,
+    onSetOffsetMinutes: (Int) -> Unit,
+    onSetRecordingPath: (String) -> Unit,
+    onSetAutoUpdate: (Boolean) -> Unit,
+    onCheckUpdate: () -> Unit = {},
+    onDismiss: () -> Unit
+) {
+    var tempPath by remember { mutableStateOf(recordingPath) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.92f),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
+        text = {
+            val scrollState = rememberScrollState()
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(scrollState)
+                    .imePadding(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 鈹€鈹€ 鍏充簬 / 鐗堟湰淇℃伅锛堟斁鏈€涓婇潰锛?鈹€鈹€
+                Text(
+                    stringResource(R.string.about_section),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    "${stringResource(R.string.version_format, BuildConfig.VERSION_NAME)} (${stringResource(R.string.build_date_format, BuildConfig.BUILD_DATE)})",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+
+                var showChangelog by remember { mutableStateOf(false) }
+                TextButton(onClick = { showChangelog = !showChangelog }) {
+                    Text(
+                        if (showChangelog) stringResource(R.string.hide_changelog) else stringResource(R.string.view_changelog),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (showChangelog) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.changelog_content),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(12.dp),
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 璇█
+                Text(stringResource(R.string.language), color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Row {
+                    TextButton(onClick = { onSetLanguage("zh") }) { Text(stringResource(R.string.chinese), color = if(lang=="zh") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    TextButton(onClick = { onSetLanguage("en") }) { Text("English", color = if(lang=="en") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+                
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 鑷姩鏇存柊
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("鑷姩妫€娴嬫洿鏂?, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                    Switch(checked = autoUpdate, onCheckedChange = onSetAutoUpdate)
+                }
+
+                // 鎵嬪姩鏇存柊鎸夐挳
+                Button(
+                    onClick = onCheckUpdate,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text("鎵嬪姩妫€鏌ユ洿鏂?, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 褰曢煶璺緞
+                Column {
+                    Text("褰曢煶瀛樻斁璺緞", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = tempPath,
+                        onValueChange = { tempPath = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    TextButton(
+                        onClick = { onSetRecordingPath(tempPath) },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("淇濆瓨璺緞", fontSize = 12.sp)
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 澶嶅埗鍋忕Щ
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 涓婚
+                Text(stringResource(R.string.themes), color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val themeNames = listOf(
+                        stringResource(R.string.theme_night),
+                        stringResource(R.string.theme_forest),
+                        stringResource(R.string.theme_sunset)
+                    )
+                    val colors = listOf(
+                        MaterialTheme.colorScheme.primary,
+                        Color(0xFF2E7D4F),
+                        Color(0xFFCC5422)
+                    )
+                    themeNames.forEachIndexed { i, name ->
+                        val bgColor = if (theme == i) colors[i] else colors[i].copy(alpha = 0.25f)
+                        val textColor = if (theme == i) Color.White else colors[i]
+                        Box(
+                            modifier = Modifier
+                                .weight(1f).height(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(bgColor)
+                                .then(
+                                    if (theme == i) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                                    else Modifier.border(1.dp, colors[i].copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                )
+                                .clickable { onSetTheme(i) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(name, color = textColor, fontSize = 12.sp, fontWeight = if(theme == i) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 鈹€鈹€ 鐢垫睜浼樺寲鐧藉悕鍗曞紩瀵?鈹€鈹€
+                val context = LocalContext.current
+                val batteryDisabled = remember { BatteryOptimizationGuide.isBatteryOptimizationDisabled(context) }
+
+                Text(
+                    stringResource(R.string.alarm_reliability),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    stringResource(R.string.battery_opt_desc),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 鍏抽棴鐢垫睜浼樺寲
+                Button(
+                    onClick = { BatteryOptimizationGuide.openBatteryOptimizationSettings(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (batteryDisabled)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        else
+                            MaterialTheme.colorScheme.primary,
+                        contentColor = if (batteryDisabled)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else
+                            MaterialTheme.colorScheme.onPrimary
+                    ),
+                    enabled = !batteryDisabled
+                ) {
+                    Text(
+                        if (batteryDisabled)
+                            stringResource(R.string.battery_opt_already_disabled)
+                        else
+                            stringResource(R.string.disable_battery_opt),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    stringResource(R.string.disable_battery_opt_tip),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 鑷惎鍔?                Button(
+                    onClick = { BatteryOptimizationGuide.openAutostartSettings(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary
+                    )
+                ) {
+                    Text(
+                        stringResource(R.string.autostart_title),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    stringResource(R.string.autostart_tip),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 鍚勫搧鐗屾寚寮曪紙鍙偣鍑诲睍寮€锛?                var showManufacturerGuide by remember { mutableStateOf(false) }
+                TextButton(onClick = { showManufacturerGuide = !showManufacturerGuide }) {
+                    Text(
+                        stringResource(R.string.manufacturer_guide_title),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (showManufacturerGuide) {
+                    val tip = remember { BatteryOptimizationGuide.getManufacturerTip() }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            text = tip,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(12.dp),
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.done), color = MaterialTheme.colorScheme.primary) } },
+        containerColor = MaterialTheme.colorScheme.surface
+    )
+}
+

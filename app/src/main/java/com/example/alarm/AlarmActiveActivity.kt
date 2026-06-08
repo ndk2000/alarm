@@ -86,8 +86,10 @@ class AlarmActiveActivity : ComponentActivity() {
     }
 
     private fun dismissAlarm() {
+        val alarmId = intent.getLongExtra("ALARM_ID", -1L)
         val stopIntent = Intent(this, AlarmService::class.java).apply {
             action = "STOP_RINGING"
+            putExtra("ALARM_ID", alarmId)
         }
         startService(stopIntent)
         finish()

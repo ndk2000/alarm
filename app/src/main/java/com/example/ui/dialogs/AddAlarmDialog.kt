@@ -29,6 +29,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.db.Alarm
 import com.example.ui.components.WheelDialPicker
+import com.example.ui.util.rememberScreenScale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -48,6 +49,7 @@ fun AddAlarmDialog(
     onImportAudio: (Uri, String) -> String?
 ) {
     val context = LocalContext.current
+    val scale = rememberScreenScale()
     var hour by remember { mutableStateOf(editingAlarm?.hour ?: 7) }
     var minute by remember { mutableStateOf(editingAlarm?.minute ?: 30) }
     var label by remember { mutableStateOf(editingAlarm?.label ?: "") }
@@ -87,7 +89,7 @@ fun AddAlarmDialog(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 400.dp) // 限制最大高度，防止在小屏或键盘弹起时顶出屏幕
+                    .heightIn(max = scale.dialogContentMaxHeight) // 限制最大高度，防止在小屏或键盘弹起时顶出屏幕
                     .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -96,11 +98,11 @@ fun AddAlarmDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF25272C), RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
                             .padding(12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(stringResource(R.string.time_picker_hint), fontSize = 12.sp, color = Color(0xFF8E9099))
+                        Text(stringResource(R.string.time_picker_hint), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

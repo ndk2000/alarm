@@ -204,6 +204,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
     val appLanguage by viewModel.appLanguage.collectAsState()
     val duplicateOffset by viewModel.duplicateOffset.collectAsState()
     val customRecordingPath by viewModel.customRecordingPath.collectAsState()
+    val dbDirectoryPath by viewModel.dbDirectoryPath.collectAsState()
     val timerRemainingSeconds by viewModel.timerRemainingSeconds.collectAsState()
     val isTimerRunning by viewModel.isTimerRunning.collectAsState()
     val isTimerRinging by viewModel.isTimerRinging.collectAsState()
@@ -513,6 +514,8 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         onSetDuplicateOffsetMinutes = { viewModel.setDuplicateOffsetMinutes(it) },
         customRecordingPath = customRecordingPath,
         onSetCustomRecordingPath = { viewModel.setCustomRecordingPath(it) },
+        dbDirectoryPath = dbDirectoryPath,
+        onSetDatabaseDirectoryPath = { viewModel.setDatabaseDirectoryPath(it) },
         timerRemainingSeconds = timerRemainingSeconds,
         isTimerRunning = isTimerRunning,
         isTimerRinging = isTimerRinging,
@@ -677,6 +680,8 @@ fun MainAppPreview() {
                 discoveredDevices = emptyList(),
                 customRecordingPath = android.os.Environment.getExternalStorageDirectory().absolutePath + "/0",
                 onSetCustomRecordingPath = {},
+                dbDirectoryPath = "",
+                onSetDatabaseDirectoryPath = {},
                 autoUpdateEnabled = true,
                 onSetAutoUpdateEnabled = {},
                 updateInfo = null,

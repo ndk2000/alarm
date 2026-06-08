@@ -21,7 +21,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.launch
 import com.example.R
+import com.example.cloud.*
 import com.example.db.Alarm
 import com.example.db.AlarmGroup
 import com.example.db.HourlyChime
@@ -31,9 +33,12 @@ import com.example.ui.dialogs.AppSettingsDialog
 import com.example.ui.screens.CheckInTab
 import com.example.db.CheckInGroupEntity
 import com.example.db.CheckInTaskEntity
+import com.example.ui.dialogs.RingtoneSelectionDialog
+import com.example.ui.screens.CheckInTab
+import com.example.ui.screens.CountdownTab
+import com.example.cloud.CloudService
 import com.example.ui.dialogs.AddCheckInGroupDialog
 import com.example.ui.dialogs.CheckInTaskInput
-import com.example.ui.dialogs.RingtoneSelectionDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +89,8 @@ fun MainAppContent(
     onSetDuplicateOffsetMinutes: (Int) -> Unit,
     customRecordingPath: String,
     onSetCustomRecordingPath: (String) -> Unit,
+    dbDirectoryPath: String,
+    onSetDatabaseDirectoryPath: (String) -> Unit,
     timerRemainingSeconds: Int,
     isTimerRunning: Boolean,
     isTimerRinging: Boolean,
@@ -132,10 +139,11 @@ fun MainAppContent(
     // 当前选中的 tab，0=Alarms, 1=Chimes, 2=WiFi Sync
     var currentTab by remember { mutableIntStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     // 当进入 WiFi 同步页时开始自动发现，离开时停止
     LaunchedEffect(currentTab) {
-        if (currentTab == 3) {
+        if (currentTab == 4) {
             onStartDiscovery()
         } else {
             onStopDiscovery()
@@ -247,38 +255,42 @@ fun MainAppContent(
                 NavigationBarItem(
                     selected = currentTab == 1,
                     onClick = { currentTab = 1 },
-                    icon = { Icon(Icons.Default.NotificationsActive, contentDescription = "Hourly Chimes") },
-                    label = { Text(stringResource(R.string.nav_chimes)) }
+                    icon = { Icon(Icons.Default.NotificationsActive, contentDescription = "Countdown") },
+                    label = { Text(stringResource(R.string.nav_countdown)) }
                 )
                 NavigationBarItem(
                     selected = currentTab == 2,
                     onClick = { currentTab = 2 },
+                    icon = { Icon(Icons.Default.NotificationsActive, contentDescription = "Hourly Chimes") },
+                    label = { Text(stringResource(R.string.nav_chimes)) }
+                )
+                NavigationBarItem(
+                    selected = currentTab == 3,
+                    onClick = { currentTab = 3 },
                     icon = { Icon(Icons.Default.Timer, contentDescription = "Timer") },
                     label = { Text(stringResource(R.string.nav_timer)) }
                 )
                 NavigationBarItem(
-                    selected = currentTab == 3,
+                    selected = currentTab == 4,
                     onClick = { 
-                        currentTab = 3 
+                        currentTab = 4 
                         onLoadCustomRingtones()
                     },
                     icon = { Icon(Icons.Default.Wifi, contentDescription = "WiFi Sync") },
                     label = { Text(stringResource(R.string.nav_sync)) }
                 )
-
                 NavigationBarItem(
-                    selected = currentTab == 4,
-                    onClick = { currentTab = 4 },
+                    selected = currentTab == 5,
+                    onClick = { currentTab = 5 },
                     icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Check-in") },
                     label = { Text(stringResource(R.string.nav_checkin)) }
                 )
                 NavigationBarItem(
-                    selected = currentTab == 5,
-                    onClick = { currentTab = 5 },
-                    icon = { Icon(Icons.Default.Info, contentDescription = "About") },
-                    label = { Text(stringResource(R.string.nav_about)) }
+                    selected = currentTab == 6,
+                    onClick = { currentTab = 6 },
+                    icon = { Icon(Icons.Default.Cloud, contentDescription = "Cloud") },
+                    label = { Text(stringResource(R.string.nav_cloud)) }
                 )
-
             }
         }
     ) { innerPadding ->
@@ -314,7 +326,11 @@ fun MainAppContent(
                         editingAlarm = alarm
                     }
                 )
-                1 -> ChimesTab(
+                1 -> CountdownTab(
+                    alarms = alarms,
+                    groups = groups
+                )
+                2 -> ChimesTab(
                         chimes = chimes,
                         onToggleChime = onToggleChime,
                         onUpdateChimeDetails = onUpdateChimeDetails,
@@ -334,7 +350,7 @@ fun MainAppContent(
                         selectedTtsVoice = selectedTtsVoice,
                         onSetTtsVoice = onSetTtsVoice
                     )
-                2 -> TimerTab(
+                3 -> TimerTab(
                     remainingSeconds = timerRemainingSeconds,
                     isRunning = isTimerRunning,
                     isRinging = isTimerRinging,
@@ -348,7 +364,7 @@ fun MainAppContent(
                     onSetMinutes = onSetTimerMinutes,
                     onSetSeconds = onSetTimerSeconds
                 )
-                3 -> WifiSyncTab(
+                4 -> WifiSyncTab(
                     isOn = isWifiServerOn,
                     customRingtones = customRingtones,
                     onToggle = onToggleWifiSync,
@@ -366,9 +382,13 @@ fun MainAppContent(
                     onSetLanguage = onSetLanguage,
                     discoveredDevices = discoveredDevices,
                     recordingPath = customRecordingPath,
-                    onDeleteRingtone = onDeleteRingtone
+                    onDeleteRingtone = onDeleteRingtone,
+                    groups = groups,
+                    checkInGroups = checkInGroups,
+                    checkInTasksMap = checkInTasksMap,
+                    cloudService = getService(LocalContext.current)
                 )
-                4 -> CheckInTab(
+                5 -> CheckInTab(
                     groups = checkInGroups,
                     tasksMap = checkInTasksMap,
                     onAddGroup = { showAddCheckInDialog = true },
@@ -382,8 +402,44 @@ fun MainAppContent(
                     onShareGroup = onShareCheckInGroup,
                     onImportGroup = onImportCheckInGroup
                 )
-                5 -> AboutTab()
+                6 -> {
+                    val ctx = LocalContext.current
+                    val cloudVm: AlarmViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                    val cShareCode by cloudVm.cloudShareCode.collectAsState()
+                    val cShareLoading by cloudVm.cloudShareLoading.collectAsState()
+                    val cImportResult by cloudVm.cloudImportResult.collectAsState()
 
+                    CloudShareTab(
+                        cloudService = getService(ctx),
+                        groups = groups,
+                        checkInGroups = checkInGroups,
+                        checkInTasksMap = checkInTasksMap,
+                        cloudShareCode = cShareCode,
+                        cloudShareLoading = cShareLoading,
+                        cloudImportResult = cImportResult,
+                        onShareAlarmGroup = { group ->
+                            scope.launch { cloudVm.shareAlarmGroupToCloud(group) }
+                        },
+                        onShareCheckInGroup = { group ->
+                            scope.launch { cloudVm.shareCheckInGroupToCloud(group, checkInTasksMap[group.id] ?: emptyList()) }
+                        },
+                        onImportFromCloud = { code ->
+                            scope.launch {
+                                // 根据分享码尝试导入闹钟组，失败则尝试打卡组
+                                if (!cloudVm.importAlarmGroupFromCloud(code)) {
+                                    cloudVm.importCheckInGroupFromCloud(code)
+                                }
+                            }
+                        },
+                        onSelectService = { ctx.selectService(it) },
+                        onSetSupabaseCredentials = { url, key -> ctx.setSupabaseCredentials(url, key) },
+                        onSetFirebaseCredentials = { projectId, apiKey -> ctx.setFirebaseCredentials(projectId, apiKey) },
+                        onClearCloudShareCode = { cloudVm.clearCloudShareCode() },
+                        onClearCloudImportResult = { cloudVm.clearCloudImportResult() },
+                        onShowSnackbar = { msg -> /* snackbar not wired, add later */ },
+                        onNavigateToGroup = {}
+                    )
+                }
             }
         }
     }
@@ -498,12 +554,14 @@ fun MainAppContent(
             offsetHours = duplicateOffsetHours,
             offsetMinutes = duplicateOffsetMinutes,
             recordingPath = customRecordingPath,
+            dbDirectoryPath = dbDirectoryPath,
             autoUpdate = autoUpdateEnabled,
             onSetTheme = onSetTheme,
             onSetLanguage = onSetLanguage,
             onSetOffsetHours = onSetDuplicateOffsetHours,
             onSetOffsetMinutes = onSetDuplicateOffsetMinutes,
             onSetRecordingPath = onSetCustomRecordingPath,
+            onSetDatabaseDirectoryPath = onSetDatabaseDirectoryPath,
             onSetAutoUpdate = onSetAutoUpdateEnabled,
             onCheckUpdate = onCheckUpdate,
             onDismiss = { showSettingsDialog = false }

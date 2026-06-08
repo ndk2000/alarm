@@ -3,7 +3,12 @@ package com.example.ui.screens
 import android.speech.tts.TextToSpeech.EngineInfo
 import android.speech.tts.Voice
 import android.widget.Toast
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +41,7 @@ fun ChimesTab(
     onToggleChime: (HourlyChime, Boolean) -> Unit,
     onUpdateChimeDetails: (Boolean, Boolean) -> Unit,
     onTestTts: (Int) -> Unit,
+    onTestCacheFiles: () -> Unit = {},
     onSetTtsPitch: (Float) -> Unit,
     onSetTtsRate: (Float) -> Unit,
     availableTtsEngines: List<EngineInfo>,
@@ -82,11 +88,14 @@ fun ChimesTab(
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().clickable { isSettingsExpanded = !isSettingsExpanded },
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f).clickable { isSettingsExpanded = !isSettingsExpanded },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
                             imageVector = if (isSettingsExpanded) Icons.Default.ExpandLess else Icons.Default.Settings,
                             contentDescription = null,
@@ -102,44 +111,55 @@ fun ChimesTab(
                         )
                     }
 
-                    if (!isSettingsExpanded) {
-                        // 简易状态预览
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (globalUseTts) {
-                                Icon(Icons.Default.RecordVoiceOver, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
-                                Spacer(modifier = Modifier.width(4.dp))
+                    // TTS测试按钮 —— 始终可见（不在下拉菜单内）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val testCtx = LocalContext.current
+                        Button(
+                            onClick = {
+                                onTestTts(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
+                                Toast.makeText(testCtx, testCtx.getString(R.string.testing_tts), Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.height(32.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF424242),
+                                contentColor = Color.White
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                stringResource(R.string.test),
+                                fontSize = 13.sp
+                            )
+                        }
+
+                        if (!isSettingsExpanded) {
+                            // 简易状态预览
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (globalUseTts) {
+                                    Icon(Icons.Default.RecordVoiceOver, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                if (globalVibrate) {
+                                    Icon(Icons.Default.Vibration, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Icon(if (isSettingsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline)
                             }
-                            if (globalVibrate) {
-                                Icon(Icons.Default.Vibration, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
-                                Spacer(modifier = Modifier.width(4.dp))
-                            }
-                            Icon(if (isSettingsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline)
                         }
                     }
                 }
 
                 AnimatedVisibility(visible = isSettingsExpanded) {
-                    Column {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            // 测试播放按钮
-                            val testContext = LocalContext.current
-                            TextButton(
-                                onClick = { 
-                                    onTestTts(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
-                                    Toast.makeText(testContext, testContext.getString(R.string.testing_tts), Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFADC6FF)),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(stringResource(R.string.test), fontSize = 12.sp)
-                            }
-                        }
 
                         // --- 缓存状态指示 ---
                         val ctx = LocalContext.current
@@ -161,6 +181,31 @@ fun ChimesTab(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(text, fontSize = 11.sp, color = color)
                         }
+                                        
+                            // 测试缓存测试按钮（展开设置时可见）
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = {
+                                        onTestCacheFiles()
+                                        Toast.makeText(ctx, "开始清空并重新合成缓存语音...", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.height(26.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF5C6BC0),
+                                        contentColor = Color.White
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("清空并测试缓存语音", fontSize = 11.sp)
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
 
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -410,7 +455,7 @@ fun ChimesTab(
                                 )
                                 availableTtsEngines.forEach { engine ->
                                     DropdownMenuItem(
-                                        text = { Text("${engine.label}") },
+                                        text = { Text("${engine.label}（${engine.name}）") },
                                         onClick = {
                                             onSetTtsEngine(engine.name)
                                             engineExpanded = false
@@ -427,6 +472,113 @@ fun ChimesTab(
                         }
                         Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF8E9099), modifier = Modifier.size(18.dp).clickable { engineExpanded = true })
                     }
+                            // 系统TTS设置按钮
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent("com.android.settings.TTS_SETTINGS").apply {
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            ctx.startActivity(intent)
+                                        } catch (e: ActivityNotFoundException) {
+                                            try {
+                                                val backupIntent = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                ctx.startActivity(backupIntent)
+                                            } catch (anfe: ActivityNotFoundException) {
+                                                Toast.makeText(ctx, "无法打开系统TTS设置，请手动前往手机设置调整", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.height(28.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color(0xFFADC6FF))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(stringResource(R.string.open_tts_settings), fontSize = 11.sp, color = Color(0xFFADC6FF))
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                // 打开当前引擎详情（下载语音包）
+                                if (selectedTtsEngine.isNotEmpty()) {
+                                    TextButton(
+                                        onClick = {
+                                            try {
+                                                // 方案 1：原有的跳转引擎设置（加上安全保护）
+                                                val intent = Intent("android.settings.ENGINE_SETTINGS").apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                    putExtra("engine", selectedTtsEngine)
+                                                }
+                                                ctx.startActivity(intent)
+                                            } catch (e: ActivityNotFoundException) {
+                                                try {
+                                                    // 方案 2：退而求其次，跳转到大分类"文字转语音输出"页面
+                                                    val ttsSettingsIntent = Intent("com.android.settings.TTS_SETTINGS").apply {
+                                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                    }
+                                                    ctx.startActivity(ttsSettingsIntent)
+                                                } catch (ex: ActivityNotFoundException) {
+                                                    // 方案 3：跳总语言设置，并弹 Toast 提示
+                                                    try {
+                                                        val languageIntent = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS).apply {
+                                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                        }
+                                                        ctx.startActivity(languageIntent)
+                                                        Toast.makeText(ctx, "请在「文字转语音」中设置默认引擎", Toast.LENGTH_LONG).show()
+                                                    } catch (allEx: Exception) {
+                                                        // 最后的防线：仅提示，绝对不闪退
+                                                        Toast.makeText(ctx, "无法打开系统设置，请手动前往手机设置中调整TTS引擎", Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.height(28.dp),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color(0xFFADC6FF))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(stringResource(R.string.open_engine_settings), fontSize = 11.sp, color = Color(0xFFADC6FF))
+                                    }
+                                }
+                                // Google TTS 引擎专用设置入口
+                                if (selectedTtsEngine == "com.google.android.tts") {
+                                    TextButton(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent().apply {
+                                                    setClassName(
+                                                        "com.google.android.tts",
+                                                        "com.google.android.apps.speech.tts.googletts.settings.TtsSettingsActivity"
+                                                    )
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                ctx.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                try {
+                                                    val intentLaunch = ctx.packageManager.getLaunchIntentForPackage("com.google.android.tts")
+                                                    if (intentLaunch != null) {
+                                                        ctx.startActivity(intentLaunch)
+                                                    } else {
+                                                        throw Exception("找不到启动入口")
+                                                    }
+                                                } catch (e2: Exception) {
+                                                    Toast.makeText(ctx, "未找到 Google TTS 引擎或该手机不支持", Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.height(28.dp),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color(0xFFADC6FF))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Google TTS", fontSize = 11.sp, color = Color(0xFFADC6FF))
+                                    }
+                                }
+                            }
                             // --- TTS 语音选择器 ---
                             var voiceExpanded by remember { mutableStateOf(false) }
                             val currentVoiceLabel = availableVoices.find { it.name == selectedTtsVoice }?.let { v ->
@@ -483,46 +635,102 @@ fun ChimesTab(
                             }
                         }
 
-                        // --- 速测模式切换按钮 ---
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val testModeCtx = LocalContext.current
-                        Button(
-                            onClick = {
-                                if (AlarmScheduler.testModeActive) {
-                                    AlarmScheduler.testModeActive = false
-                                    AlarmScheduler.cancelChimeAlarm(testModeCtx)
-                                    AlarmScheduler.scheduleNextHourlyChime(testModeCtx)
-                                    Toast.makeText(testModeCtx, testModeCtx.getString(R.string.test_mode_off), Toast.LENGTH_SHORT).show()
-                                } else {
-                                    AlarmScheduler.testModeActive = true
-                                    AlarmScheduler.cancelChimeAlarm(testModeCtx)
-                                    AlarmScheduler.scheduleNextHourlyChime(testModeCtx)
-                                    Toast.makeText(testModeCtx, testModeCtx.getString(R.string.test_mode_on), Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (AlarmScheduler.testModeActive) Color(0xFF2E7D32) else Color(0xFF424242),
-                                contentColor = Color.White
-                            )
+                        // --- 日志显示 ---
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 6.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { showLogs = !showLogs }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.FlashOn,
+                                if (showLogs) Icons.Default.ExpandLess else Icons.Default.Info,
                                 contentDescription = null,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(16.dp),
+                                tint = Color(0xFF8E9099)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = stringResource(R.string.test_mode_btn),
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                "显示日志",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF8E9099)
                             )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(
+                                "${debugLogs.size}条",
+                                fontSize = 11.sp,
+                                color = Color(0xFF8E9099)
+                            )
+                        }
+                        if (showLogs) {
+                            val scrollState = rememberScrollState()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                                    .verticalScroll(scrollState)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF1E1E2E).copy(alpha = 0.9f))
+                                    .padding(8.dp)
+                            ) {
+                                if (debugLogs.isEmpty()) {
+                                    Text("暂无日志", fontSize = 11.sp, color = Color(0xFF8E9099))
+                                } else {
+                                    debugLogs.forEach { log ->
+                                        Text(
+                                            text = log,
+                                            fontSize = 10.sp,
+                                            color = Color(0xFFB0B0B0),
+                                            modifier = Modifier.padding(vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        // --- 速测模式切换按钮（始终可见，在设置卡片外面） ---
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            val testModeCtx = LocalContext.current
+            Button(
+                onClick = {
+                    if (AlarmScheduler.testModeActive) {
+                        AlarmScheduler.testModeActive = false
+                        AlarmScheduler.cancelChimeAlarm(testModeCtx)
+                        AlarmScheduler.scheduleNextHourlyChime(testModeCtx)
+                        Toast.makeText(testModeCtx, testModeCtx.getString(R.string.test_mode_off), Toast.LENGTH_SHORT).show()
+                    } else {
+                        AlarmScheduler.testModeActive = true
+                        AlarmScheduler.cancelChimeAlarm(testModeCtx)
+                        AlarmScheduler.scheduleNextHourlyChime(testModeCtx)
+                        Toast.makeText(testModeCtx, testModeCtx.getString(R.string.test_mode_on), Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (AlarmScheduler.testModeActive) Color(0xFF2E7D32) else Color(0xFF424242),
+                    contentColor = Color.White
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FlashOn,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.test_mode_btn),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 

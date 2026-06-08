@@ -8,7 +8,6 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import java.io.File
-import java.security.MessageDigest
 import java.util.*
 
 /**
@@ -16,8 +15,8 @@ import java.util.*
  * 第一次播放指定文本时通过 TTS 合成为 .wav 缓存文件，
  * 之后直接播放缓存，减少重复合成开销。
  *
- * 缓存位置: {filesDir}/tts_task_cache/task_{md5(text)}.wav
- * 文件名由文本 MD5 决定，同一文本始终映射到同一文件。
+ * 缓存位置: {filesDir}/tts_task_cache/task_{safe_text}.wav
+ * 文件名直接使用文字内容（经非法字符清理），同一文本始终映射到同一文件。
  */
 object TtsTaskPlayer : TextToSpeech.OnInitListener {
     private const val TAG = "TtsTaskPlayer"
@@ -39,10 +38,11 @@ object TtsTaskPlayer : TextToSpeech.OnInitListener {
 
     /** 根据文本获取缓存文件（不论是否存在） */
     fun cacheFile(ctx: Context, text: String): File {
-        val hash = MessageDigest.getInstance("MD5")
-            .digest(text.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
-        return File(cacheDir(ctx), "task_$hash.wav")
+        // 清理文件名中的非法字符，取前 50 字符避免路径过长
+        val safeName = text
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .take(50)
+        return File(cacheDir(ctx), "task_${safeName}.wav")
     }
 
     /** 如果缓存已存在，返回文件路径；否则返回 null */
@@ -90,6 +90,60 @@ object TtsTaskPlayer : TextToSpeech.OnInitListener {
         if (f.exists()) {
             f.delete()
             Log.d(TAG, "已删除旧缓存: ${f.absolutePath}")
+        }
+    }
+
+    /**
+     * 同步生成 TTS 语音文件，等待合成完成再返回路径
+     * 最多等待 timeoutMs 毫秒，超时返回 null
+     */
+    fun generateSync(context: Context, text: String, timeoutMs: Long = 5000): String? {
+        if (text.isBlank()) return null
+        val ctx = context.applicationContext
+        val cached = cacheFile(ctx, text)
+        if (cached.exists() && cached.length() > 0) {
+            return cached.absolutePath
+        }
+
+        ensure(ctx)
+        if (!isReady) {
+            Log.w(TAG, "TTS 未就绪，无法同步合成")
+            return null
+        }
+
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val utteranceId = "sync_${cached.nameWithoutExtension}_${System.currentTimeMillis()}"
+        val capturedId = utteranceId
+
+        // 注册临时监听，等待合成完成
+        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId == capturedId) {
+                    latch.countDown()
+                }
+            }
+            override fun onError(utteranceId: String?) {
+                if (utteranceId == capturedId) {
+                    latch.countDown()
+                }
+            }
+        })
+
+        val result = tts?.synthesizeToFile(text, null, cached, utteranceId)
+        if (result != TextToSpeech.SUCCESS) {
+            Log.w(TAG, "synthesizeToFile 失败: result=$result")
+            return null
+        }
+
+        // 等待合成完成，最多 timeoutMs
+        val completed = latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (completed && cached.exists() && cached.length() > 0) {
+            Log.d(TAG, "同步合成完成: ${cached.absolutePath}")
+            return cached.absolutePath
+        } else {
+            Log.w(TAG, "同步合成超时或失败: $text")
+            return null
         }
     }
 

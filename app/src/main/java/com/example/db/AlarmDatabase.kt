@@ -15,13 +15,15 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 @Database(
-    entities = [AlarmGroup::class, Alarm::class, HourlyChime::class, CheckInGroupEntity::class, CheckInTaskEntity::class],
-    version = 6,
+    entities = [AlarmGroup::class, Alarm::class, HourlyChime::class, CheckInGroupEntity::class, CheckInTaskEntity::class, CloudShareRecord::class, AlarmRecord::class],
+    version = 9,
     exportSchema = true
 )
 abstract class AlarmDatabase : RoomDatabase() {
     abstract fun alarmDao(): AlarmDao
     abstract fun checkinDao(): CheckInDao
+    abstract fun cloudShareDao(): CloudShareDao
+    abstract fun alarmRecordDao(): AlarmRecordDao
 
     companion object {
         @Volatile
@@ -32,6 +34,9 @@ abstract class AlarmDatabase : RoomDatabase() {
 
         // 旧的内部存储数据库名（Room 默认在 data/data/.../databases/ 下）
         private const val OLD_DB_NAME = "alarm_database"
+
+        // 可配置的数据库目录偏好项
+        private const val DB_DIR_PREF = "database_dir_path"
 
         // Migration from version 1 to 2 (if needed in the future)
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -76,9 +81,20 @@ abstract class AlarmDatabase : RoomDatabase() {
         }
 
         // Migration from version 4 to 5: add ringtonePath column to check_in_groups
+        // Note: MIGRATION_3_4 already creates check_in_groups WITH ringtonePath, so
+        // this ALTER TABLE may fail if the column already exists. Catch & ignore that case.
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE `check_in_groups` ADD COLUMN `ringtonePath` TEXT DEFAULT NULL")
+                try {
+                    database.execSQL("ALTER TABLE `check_in_groups` ADD COLUMN `ringtonePath` TEXT DEFAULT NULL")
+                } catch (e: Exception) {
+                    val msg = e.message?.lowercase() ?: ""
+                    if ("duplicate column" in msg) {
+                        Log.w("AlarmDB", "MIGRATION_4_5: ringtonePath already exists, skipping")
+                    } else {
+                        throw e // rethrow unexpected errors
+                    }
+                }
             }
         }
 
@@ -87,6 +103,60 @@ abstract class AlarmDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE `check_in_tasks` ADD COLUMN `ringtonePath` TEXT DEFAULT NULL")
                 database.execSQL("ALTER TABLE `check_in_tasks` ADD COLUMN `useTts` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        // Migration from version 6 to 7: add cloud_share_records table
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `cloud_share_records` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `shareCode` TEXT NOT NULL,
+                        `groupName` TEXT NOT NULL,
+                        `itemCount` INTEGER NOT NULL DEFAULT 0,
+                        `shareTime` INTEGER NOT NULL,
+                        `groupType` TEXT NOT NULL,
+                        `sourceGroupId` INTEGER NOT NULL DEFAULT -1
+                    )
+                """.trimIndent())
+            }
+        }
+
+        // Migration from version 7 to 8: add alarm_records table
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `alarm_records` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `alarmId` INTEGER NOT NULL,
+                        `label` TEXT NOT NULL,
+                        `scheduledTime` INTEGER NOT NULL,
+                        `recordDate` TEXT NOT NULL,
+                        `dismissTime` INTEGER,
+                        `status` TEXT NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_alarm_records_recordDate` ON `alarm_records`(`recordDate`)")
+            }
+        }
+
+        // Migration from version 8 to 9: fix alarm_records schema (remove default)
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("DROP TABLE IF EXISTS `alarm_records`")
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `alarm_records` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `alarmId` INTEGER NOT NULL,
+                        `label` TEXT NOT NULL,
+                        `scheduledTime` INTEGER NOT NULL,
+                        `recordDate` TEXT NOT NULL,
+                        `dismissTime` INTEGER,
+                        `status` TEXT NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_alarm_records_recordDate` ON `alarm_records`(`recordDate`)")
             }
         }
 
@@ -117,7 +187,7 @@ abstract class AlarmDatabase : RoomDatabase() {
                         dbFile.absolutePath
                     )
                     .addCallback(AlarmDatabaseCallback(scope))
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .fallbackToDestructiveMigration()
                     .build()
                     Log.d("AlarmDB", "[7] Room.build done")
@@ -139,13 +209,31 @@ abstract class AlarmDatabase : RoomDatabase() {
                 DB_NAME
             )
             .addCallback(AlarmDatabaseCallback(scope))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .fallbackToDestructiveMigration()
             .build()
         }
 
         /** 获取可访问的数据库文件路径 */
         private fun getAccessibleDbFile(context: Context): File {
+            val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            val customDir = prefs.getString(DB_DIR_PREF, null)?.trim().orEmpty()
+            if (customDir.isNotEmpty()) {
+                try {
+                    val customDirFile = if (customDir.startsWith("/")) {
+                        File(customDir)
+                    } else {
+                        File(Environment.getExternalStorageDirectory(), customDir)
+                    }
+                    if (customDirFile.exists() || customDirFile.mkdirs()) {
+                        return File(customDirFile, DB_NAME)
+                    }
+                    Log.w("AlarmDB", "Custom DB dir path exists but cannot be created: ${customDirFile.absolutePath}")
+                } catch (e: Exception) {
+                    Log.e("AlarmDB", "Custom DB dir access error", e)
+                }
+            }
+
             // 1. 尝试 Downloads 目录 (需要 MANAGE_EXTERNAL_STORAGE)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 try {
