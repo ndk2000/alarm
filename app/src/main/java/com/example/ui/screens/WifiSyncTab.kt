@@ -616,12 +616,14 @@ private fun CloudSyncContent(
                                 if (configs.isEmpty()) { resultMessage = "云端没有任何配置数据"; isDownloading = false; return@launch }
                                 for (c in configs) {
                                     downloadProgress = "下载: ${c.shareCode}..."
+                                    val json = try { cloudService?.downloadConfig(c.shareCode) } catch (_: Exception) { null }
+                                    val name = json?.let { try { org.json.JSONObject(it).optString("groupName", "") } catch (_: Exception) { "" } } ?: ""
+                                    if (name.isNotBlank() && viewModel.checkGroupNameExists(name, c.type == ShareDataType.ALARM_GROUP)) {
+                                        resultMessage += "⏭️ ${name} 本地已有，跳过\n"; continue
+                                    }
                                     try {
-                                        val success = when (c.type) {
-                                            ShareDataType.ALARM_GROUP  -> viewModel.importAlarmGroupFromCloud(c.shareCode)
-                                            ShareDataType.CHECK_IN_GROUP -> viewModel.importCheckInGroupFromCloud(c.shareCode)
-                                        }
-                                        if (success) ok++ else resultMessage += "❌ ${c.shareCode} 导入失败\n"
+                                        val ok2 = if (c.type == ShareDataType.ALARM_GROUP) viewModel.importAlarmGroupFromCloud(c.shareCode) else viewModel.importCheckInGroupFromCloud(c.shareCode)
+                                        if (ok2) ok++ else resultMessage += "❌ ${c.shareCode} 导入失败\n"
                                     } catch (e: Exception) { resultMessage += "❌ ${c.shareCode}: ${e.message}\n" }
                                 }
                                 resultMessage += "✅ 同步完成：成功导入${ok}项"
@@ -639,11 +641,6 @@ private fun CloudSyncContent(
         }
 
         // ── 提示 ──
-        item {
-            Text("💡 提示：如需单独分享或导入请切换到「云端」Tab", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-        }
-
-        // ── 清除本地数据 ──
         item {
             var showConfirm by remember { mutableStateOf(false) }
             if (showConfirm) {

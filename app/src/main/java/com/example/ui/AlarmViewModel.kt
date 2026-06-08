@@ -1121,6 +1121,17 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
     }
 
+    /** 查询本地数据库是否已有同名群组（用于云端同步去重） */
+    suspend fun checkGroupNameExists(groupName: String, isAlarmGroup: Boolean): Boolean {
+        return withContext(Dispatchers.IO) {
+            if (isAlarmGroup) {
+                repository.getGroupList().any { it.name == groupName }
+            } else {
+                checkInDao.getAllGroups().any { it.name == groupName }
+            }
+        }
+    }
+
     fun deleteGroup(group: AlarmGroup) {
         viewModelScope.launch(Dispatchers.IO) {
             // Cancel and deleted alarms inside first
