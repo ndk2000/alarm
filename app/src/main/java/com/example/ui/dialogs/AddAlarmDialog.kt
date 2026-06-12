@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.example.R
+import com.example.alarm.TtsTaskPlayer
 import com.example.db.Alarm
 import com.example.ui.components.WheelDialPicker
 import com.example.ui.util.rememberScreenScale
@@ -231,10 +232,10 @@ fun AddAlarmDialog(
                     )
                 }
                 item {
-                    // 自定义铃声选择
+                    // 自定义铃声选择 + 语音合成
                     val rPath = selectedRingtonePath
+                    val isTtsSelected = rPath == com.example.alarm.AlarmService.TTS_RINGTONE_MARKER
                     val ringtoneDisplay = when {
-                        rPath == com.example.alarm.AlarmService.TTS_RINGTONE_MARKER -> "🔊 语音合成（朗读标签文字）"
                         rPath == null -> stringResource(R.string.default_ringtone)
                         rPath.startsWith("content://") -> {
                             systemRingtones.find { it.second == rPath }?.first ?: stringResource(R.string.default_ringtone)
@@ -247,52 +248,101 @@ fun AddAlarmDialog(
                     Column {
                         Text(stringResource(R.string.select_ringtone), fontSize = 12.sp, color = Color(0xFF8E9099))
                         Spacer(modifier = Modifier.height(6.dp))
-                        // TTS 语音合成选项
+
+                        // 语音合成选项
                         Row(
                             modifier = Modifier.fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (rPath == com.example.alarm.AlarmService.TTS_RINGTONE_MARKER) Color(0xFF1A3A5C) else Color(0xFF25272C))
-                                .clickable { selectedRingtonePath = com.example.alarm.AlarmService.TTS_RINGTONE_MARKER }
+                                .background(if (isTtsSelected) Color(0xFF1A3A5C) else Color(0xFF25272C))
+                                .clickable {
+                                    if (isTtsSelected) {
+                                        selectedRingtonePath = null
+                                    } else {
+                                        selectedRingtonePath = com.example.alarm.AlarmService.TTS_RINGTONE_MARKER
+                                        // 自动生成 TTS 缓存
+                                        if (label.isNotBlank()) {
+                                            TtsTaskPlayer.generateSync(context, label)
+                                        }
+                                    }
+                                }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = Color(0xFFADC6FF), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.RecordVoiceOver,
+                                contentDescription = null, tint = Color(0xFFADC6FF), modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("🔊 语音合成（朗读标签文字）", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFFE3E2E6))
+                            Text("🔊 语音合成（朗读标签文字）",
+                                fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFFE3E2E6))
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Box(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFF25272C)).clickable { showRingtoneSelection = true }.padding(12.dp)
-                        ) {
-                            Row(
+
+                        if (isTtsSelected) {
+                            // 语音合成模式：显示文件信息 + 试听按钮
+                            Spacer(Modifier.height(8.dp))
+                            Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF25272C)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, tint = Color(0xFFADC6FF), modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = ringtoneDisplay, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFFE3E2E6))
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        val cacheFile = TtsTaskPlayer.cacheFile(context, label)
+                                        Text("朗读内容：$label",
+                                            fontSize = 12.sp, color = Color(0xFFE3E2E6),
+                                            maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Spacer(Modifier.height(4.dp))
+                                        Text("文件：${cacheFile.name}",
+                                            fontSize = 10.sp, color = Color(0xFF8E9099))
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            TtsTaskPlayer.play(context, label)
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow,
+                                            contentDescription = "试听", tint = Color(0xFFADC6FF))
+                                    }
                                 }
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFFADC6FF))
                             }
-                        }
-                        if (showRingtoneSelection) {
-                            RingtoneSelectionDialog(
-                                currentSelectedPath = selectedRingtonePath,
-                                customRingtones = customRingtones,
-                                systemRingtones = systemRingtones,
-                                localRecordings = localRecordings,
-                                customRecordingPath = customRecordingPath,
-                                isRecording = isRecording,
-                                recordingDuration = recordingDuration,
-                                onStartRecording = onStartRecording,
-                                onStopRecording = onStopRecording,
-                                onCancelRecording = onCancelRecording,
-                                onDismiss = { showRingtoneSelection = false },
-                                onSelect = { path -> selectedRingtonePath = path },
-                                onImportAudio = onImportAudio
-                            )
+                        } else {
+                            // 非语音合成模式：显示铃声选择框
+                            Spacer(Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFF25272C)).clickable { showRingtoneSelection = true }.padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, tint = Color(0xFFADC6FF), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(text = ringtoneDisplay, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFFE3E2E6))
+                                    }
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFFADC6FF))
+                                }
+                            }
+                            if (showRingtoneSelection) {
+                                RingtoneSelectionDialog(
+                                    currentSelectedPath = selectedRingtonePath,
+                                    customRingtones = customRingtones,
+                                    systemRingtones = systemRingtones,
+                                    localRecordings = localRecordings,
+                                    customRecordingPath = customRecordingPath,
+                                    isRecording = isRecording,
+                                    recordingDuration = recordingDuration,
+                                    onStartRecording = onStartRecording,
+                                    onStopRecording = onStopRecording,
+                                    onCancelRecording = onCancelRecording,
+                                    onDismiss = { showRingtoneSelection = false },
+                                    onSelect = { path -> selectedRingtonePath = path },
+                                    onImportAudio = onImportAudio
+                                )
+                            }
                         }
                     }
                 }

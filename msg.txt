@@ -1,0 +1,7 @@
+feat: 闹钟编辑语音合成选项显示文件信息+试听按钮
+
+- AddAlarmDialog: 选中语音合成后显示朗读内容、文件名和试听按钮
+- AddAlarmDialog: 取消选中时恢复铃声选择框，两种模式互斥切换
+- AlarmService: TTS_RINGTONE_MARKER 常量标记语音合成模式
+
+Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
