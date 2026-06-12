@@ -1,7 +1,0 @@
-fix: 选择性同步可滚动 + 默认全不选
-
-- 问题：组列表不能滚动（组多时显示不全）、默认全选
-- 修复：Column 添加 verticalScroll(rememberScrollState())
-- 默认 selectedAlarmGroups/selectedCheckinGroups 改为 emptySet()
-
-Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
