@@ -251,44 +251,6 @@ fun AlarmsTab(
                                                         .padding(vertical = 4.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    // Draggable Handle Icon
-                                                    Icon(
-                                                        imageVector = Icons.Default.Menu,
-                                                        contentDescription = "拖拽移动分组",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                        modifier = Modifier
-                                                            .padding(end = 4.dp)
-                                                            .size(24.dp)
-                                                            .pointerInput(alarm) {
-                                                                detectDragGesturesAfterLongPress(
-                                                                    onDragStart = { startOffset ->
-                                                                        draggedAlarm = alarm
-                                                                        dragStartPoint = startOffset
-                                                                        dragOffset = Offset.Zero
-                                                                        itemGlobalPosition = myGlobalPosition
-                                                                        originalAlarmPositionInParent = myGlobalPosition - parentOffset
-                                                                    },
-                                                                    onDrag = { change, dragAmount ->
-                                                                        change.consume()
-                                                                        dragOffset += dragAmount
-                                                                    },
-                                                                    onDragEnd = {
-                                                                        val globalPos = itemGlobalPosition + dragStartPoint + dragOffset
-                                                                        val targetGroupId = groupBounds.entries.find { it.value.contains(globalPos) }?.key
-                                                                        if (targetGroupId != null && targetGroupId != alarm.groupId) {
-                                                                            onMoveAlarmToGroup(alarm, targetGroupId)
-                                                                        }
-                                                                        draggedAlarm = null
-                                                                        dragOffset = Offset.Zero
-                                                                    },
-                                                                    onDragCancel = {
-                                                                        draggedAlarm = null
-                                                                        dragOffset = Offset.Zero
-                                                                    }
-                                                                )
-                                                            }
-                                                    )
-
                                                     Box(modifier = Modifier.weight(1f)) {
                                                         val dismissState = rememberSwipeToDismissBoxState(
                                                             confirmValueChange = {
