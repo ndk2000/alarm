@@ -1,8 +1,0 @@
-fix: 启动闹钟守护服务 + 闹钟关闭界面多种关闭方式
-
-- MainActivity.onCreate: 启动 AlarmGuardService 常驻后台（之前写了但没启动）
-- AlarmActiveActivity: 新增音量键关闭闹钟
-- AlarmActiveActivity: 新增蓝色大按钮「点击关闭闹钟」
-- AlarmActiveActivity: 底部提示「按音量键也可关闭」
-
-Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
