@@ -435,7 +435,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         _syncTargetIp.value = ip
     }
 
-    fun syncFromRemote(context: Context, importMode: com.example.alarm.WifiSyncClient.ImportMode = com.example.alarm.WifiSyncClient.ImportMode.CLEAR) {
+    fun syncFromRemote(context: Context, importMode: com.example.alarm.WifiSyncClient.ImportMode = com.example.alarm.WifiSyncClient.ImportMode.CLEAR, selectedGroupNames: Set<String>? = null) {
         val ip = _syncTargetIp.value.trim()
         if (ip.isEmpty()) {
             _syncStatus.value = SyncStatus.Error("请输入 IP 地址")
@@ -456,7 +456,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         _syncStatus.value = SyncStatus.Connecting
         viewModelScope.launch {
             val client = com.example.alarm.WifiSyncClient(context)
-            val result = client.syncFromRemote(ip, importMode = importMode)
+            val result = client.syncFromRemote(ip, importMode = importMode, selectedGroupNames = selectedGroupNames)
             when (result) {
                 is com.example.alarm.WifiSyncClient.SyncResult.Success -> {
                     // 刷新数据

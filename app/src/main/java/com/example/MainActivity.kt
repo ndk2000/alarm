@@ -506,6 +506,7 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         syncTargetIp = syncTargetIp,
         onSetSyncTargetIp = { viewModel.setSyncTargetIp(it) },
         onSyncFromRemote = { mode -> viewModel.syncFromRemote(context, mode) },
+        onSelectiveSync = { names -> viewModel.syncFromRemote(context, com.example.alarm.WifiSyncClient.ImportMode.SELECTIVE, selectedGroupNames = names) },
         onClearSyncStatus = { viewModel.clearSyncStatus() },
         appTheme = appTheme,
         appLanguage = appLanguage,

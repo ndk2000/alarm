@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -43,6 +45,7 @@ fun WifiSyncTab(
     syncTargetIp: String,
     onSetSyncTargetIp: (String) -> Unit,
     onSyncFromRemote: (com.example.alarm.WifiSyncClient.ImportMode) -> Unit,
+    onSelectiveSync: (Set<String>) -> Unit = {},
     onClearSyncStatus: () -> Unit,
     appTheme: Int,
     appLanguage: String,
@@ -84,6 +87,7 @@ fun WifiSyncTab(
                 syncTargetIp = syncTargetIp,
                 onSetSyncTargetIp = onSetSyncTargetIp,
                 onSyncFromRemote = onSyncFromRemote,
+                onSelectiveSync = onSelectiveSync,
                 onClearSyncStatus = onClearSyncStatus,
                 appTheme = appTheme,
                 appLanguage = appLanguage,
@@ -117,6 +121,7 @@ private fun LocalSyncContent(
     syncTargetIp: String,
     onSetSyncTargetIp: (String) -> Unit,
     onSyncFromRemote: (com.example.alarm.WifiSyncClient.ImportMode) -> Unit,
+    onSelectiveSync: (Set<String>) -> Unit,
     onClearSyncStatus: () -> Unit,
     appTheme: Int,
     appLanguage: String,
@@ -137,10 +142,19 @@ private fun LocalSyncContent(
     val ip = localIp.ifEmpty { stringResource(R.string.connected_wlan) }
     val webAddress = "http://$ip:8080"
     val isZh = appLanguage == "zh"
+    val ctx = LocalContext.current
 
     var showImportModeDialog by remember { mutableStateOf(false) }
     var pendingImportMode by remember { mutableStateOf(com.example.alarm.WifiSyncClient.ImportMode.CLEAR) }
     var ringtoneToDelete by remember { mutableStateOf<String?>(null) }
+    // 选择性同步状态
+    var showSelectiveDialog by remember { mutableStateOf(false) }
+    var remoteAlarmGroups by remember { mutableStateOf<List<String>>(emptyList()) }
+    var remoteCheckinGroups by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedAlarmGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedCheckinGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isFetchingGroups by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     LazyColumn(
         modifier = Modifier
@@ -477,11 +491,118 @@ private fun LocalSyncContent(
                         Text("仅同步报时", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                     Text("只同步整点报时语音，不影响闹钟和打卡数据", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(8.dp))
+
+                    // 选择性同步
+                    Button(
+                        onClick = {
+                            showImportModeDialog = false
+                            isFetchingGroups = true
+                            showSelectiveDialog = true
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                val client = com.example.alarm.WifiSyncClient(ctx)
+                                val result = client.fetchRemoteGroupList(syncTargetIp)
+                                if (result != null) {
+                                    remoteAlarmGroups = result.first
+                                    remoteCheckinGroups = result.second
+                                    selectedAlarmGroups = emptySet()
+                                    selectedCheckinGroups = emptySet()
+                                }
+                                isFetchingGroups = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Icon(Icons.Default.ListAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("选择性同步", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Text("先获取远程组列表，勾选要同步的闹钟组和打卡组", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showImportModeDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // ── 选择性同步对话框 ──
+    if (showSelectiveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSelectiveDialog = false },
+            title = { Text("选择要同步的组") },
+            text = {
+                if (isFetchingGroups) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        CircularProgressIndicator(modifier = Modifier.size(36.dp))
+                        Spacer(Modifier.height(12.dp))
+                        Text("正在获取远程组列表...", fontSize = 13.sp)
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (remoteAlarmGroups.isEmpty() && remoteCheckinGroups.isEmpty()) {
+                            Text("获取远程组列表失败，请检查网络连接", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                        } else {
+                            if (remoteAlarmGroups.isNotEmpty()) {
+                                Text("闹钟组", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                remoteAlarmGroups.forEach { name ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = name in selectedAlarmGroups,
+                                            onCheckedChange = { checked ->
+                                                selectedAlarmGroups = if (checked) selectedAlarmGroups + name else selectedAlarmGroups - name
+                                            }
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(name, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                            if (remoteCheckinGroups.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("打卡组", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                remoteCheckinGroups.forEach { name ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = name in selectedCheckinGroups,
+                                            onCheckedChange = { checked ->
+                                                selectedCheckinGroups = if (checked) selectedCheckinGroups + name else selectedCheckinGroups - name
+                                            }
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(name, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (!isFetchingGroups && (remoteAlarmGroups.isNotEmpty() || remoteCheckinGroups.isNotEmpty())) {
+                    Button(onClick = {
+                        val allSelected = selectedAlarmGroups + selectedCheckinGroups
+                        if (allSelected.isNotEmpty()) {
+                            onSelectiveSync(allSelected)
+                        }
+                        showSelectiveDialog = false
+                    }) {
+                        Text("同步选中组 (${(selectedAlarmGroups + selectedCheckinGroups).size})", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSelectiveDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             }

@@ -18,7 +18,7 @@ import java.net.URL
  * 主动连接另一台手机上的 WifiSyncServer，拉取完整的闹钟配置和铃声备份
  */
 class WifiSyncClient(private val context: Context) {
-    enum class ImportMode { CLEAR, MERGE, ONLY_CHIMES }
+    enum class ImportMode { CLEAR, MERGE, ONLY_CHIMES, SELECTIVE }
 
     companion object {
         private const val TAG = "WifiSyncClient"
@@ -50,7 +50,11 @@ class WifiSyncClient(private val context: Context) {
      * @param importMode 导入模式：CLEAR 清空后导入，MERGE 合并导入
      * @return SyncResult 表示同步结果
      */
-    suspend fun syncFromRemote(ipAddress: String, port: Int = DEFAULT_PORT, importMode: ImportMode = ImportMode.CLEAR): SyncResult {
+    /**
+     * 从远程同步数据，支持选择性同步
+     * @param selectedGroupNames 选择同步的闹钟组与打卡组名称集合（仅 SELECTIVE 模式使用）
+     */
+    suspend fun syncFromRemote(ipAddress: String, port: Int = DEFAULT_PORT, importMode: ImportMode = ImportMode.CLEAR, selectedGroupNames: Set<String>? = null): SyncResult {
         return withContext(Dispatchers.IO) {
             try {
                 Log.i(TAG, ">>> [SYNC START] Target: $ipAddress:$port")
@@ -79,7 +83,7 @@ class WifiSyncClient(private val context: Context) {
 
                 // Step 3: Import
                 Log.d(TAG, "Step 3: Importing backup to local storage...")
-                val importOk = importBackupToLocal(tempZip, importMode)
+                val importOk = importBackupToLocal(tempZip, importMode, selectedGroupNames)
 
                 if (tempZip.exists()) {
                     tempZip.delete()
@@ -108,6 +112,45 @@ class WifiSyncClient(private val context: Context) {
                 Log.e(TAG, "Unexpected sync exception", e)
                 SyncResult.Error("同步出错 [${e.javaClass.simpleName}]: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * 获取远程备份中的闹钟组和打卡组名称列表（用于选择性同步）
+     * @return Pair(闹钟组名列表, 打卡组名列表) 或 null（失败）
+     */
+    suspend fun fetchRemoteGroupList(ipAddress: String, port: Int = DEFAULT_PORT): Pair<List<String>, List<String>>? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val tempZip = downloadBackup(ipAddress, port, ImportMode.CLEAR) ?: return@withContext null
+                val alarmGroups = mutableListOf<String>()
+                val checkinGroups = mutableListOf<String>()
+                try {
+                    val zip = java.util.zip.ZipInputStream(java.io.FileInputStream(tempZip))
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        if (entry.name == "config.json") {
+                            val jsonStr = zip.bufferedReader().readText()
+                            val root = org.json.JSONObject(jsonStr)
+                            val groupsArr = root.getJSONArray("groups")
+                            for (i in 0 until groupsArr.length()) {
+                                alarmGroups.add(groupsArr.getJSONObject(i).getString("name"))
+                            }
+                            if (root.has("checkinGroups")) {
+                                val cgArr = root.getJSONArray("checkinGroups")
+                                for (i in 0 until cgArr.length()) {
+                                    checkinGroups.add(cgArr.getJSONObject(i).getString("name"))
+                                }
+                            }
+                        }
+                        entry = zip.nextEntry
+                    }
+                    zip.close()
+                } catch (_: Exception) { }
+                if (tempZip.exists()) tempZip.delete()
+                if (alarmGroups.isEmpty() && checkinGroups.isEmpty()) null
+                else Pair(alarmGroups, checkinGroups)
+            } catch (_: Exception) { null }
         }
     }
 
@@ -194,7 +237,7 @@ class WifiSyncClient(private val context: Context) {
     }
 
     /** 将下载的 ZIP 备份导入本地数据库 */
-    private suspend fun importBackupToLocal(zipFile: File, importMode: ImportMode = ImportMode.CLEAR): Boolean {
+    private suspend fun importBackupToLocal(zipFile: File, importMode: ImportMode = ImportMode.CLEAR, selectedGroupNames: Set<String>? = null): Boolean {
         return try {
             // 获取配置路径
             val prefsSettings = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
@@ -281,16 +324,20 @@ class WifiSyncClient(private val context: Context) {
                         Log.d(TAG, "Merge mode: keeping existing groups")
                     }
 
-                    // 导入分组
+                    // 导入分组（选择性同步时只导入选中的组）
                     val idMap = mutableMapOf<Long, Long>()
                     val groupsArr = root.getJSONArray("groups")
-                    Log.d(TAG, "Importing ${groupsArr.length()} groups...")
+                    val isSelective = importMode == ImportMode.SELECTIVE && selectedGroupNames != null
+                    Log.d(TAG, "Importing ${groupsArr.length()} groups... (selective=${isSelective}, selected=${selectedGroupNames?.size ?: "all"})")
                     for (i in 0 until groupsArr.length()) {
                         val g = groupsArr.getJSONObject(i)
+                        val groupName = g.getString("name")
+                        // 选择性模式：跳过不在选中列表的组
+                        if (isSelective && groupName !in selectedGroupNames!!) continue
                         val oldId = g.getLong("id")
                         val newId = db.alarmDao().insertGroup(
                             com.example.db.AlarmGroup(
-                                name = g.getString("name"),
+                                name = groupName,
                                 isEnabled = g.getBoolean("isEnabled")
                             )
                         )
@@ -353,6 +400,9 @@ class WifiSyncClient(private val context: Context) {
                         }
                         for (i in 0 until checkinGroupsArr.length()) {
                             val g = checkinGroupsArr.getJSONObject(i)
+                            val groupName = g.getString("name")
+                            // 选择性模式：跳过不在选中列表的组
+                            if (isSelective && groupName !in selectedGroupNames!!) continue
                             val rawRingtonePath = if (g.isNull("ringtonePath")) null else g.getString("ringtonePath")
                             var newRingtonePath: String? = rawRingtonePath
                             if (newRingtonePath != null && (newRingtonePath.contains("/files/custom_ringtones/") || newRingtonePath.contains("/0/"))) {
