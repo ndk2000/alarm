@@ -115,6 +115,9 @@ class MainActivity : ComponentActivity() {
             com.example.alarm.ChimeAudioPreloader.ensure(this@MainActivity)
         }
 
+        // 启动闹钟守护服务（常驻前台，每30秒重新调度所有闹钟）
+        com.example.alarm.AlarmGuardService.start(this)
+
         setContent {
             val viewModel: AlarmViewModel = viewModel()
             val appTheme by viewModel.appTheme.collectAsState()

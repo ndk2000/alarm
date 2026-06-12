@@ -18,6 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -83,6 +86,16 @@ class AlarmActiveActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** 音量键关闭闹钟 */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+            keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+            dismissAlarm()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun dismissAlarm() {
@@ -206,20 +219,53 @@ fun AlarmRingingScreen(
                 .fillMaxWidth()
                 .padding(bottom = 50.dp)
         ) {
+            // 大按钮点击关闭（备选，滑动不灵时用）
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .padding(horizontal = 24.dp),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFADC6FF),
+                    contentColor = Color(0xFF0D0D1A)
+                )
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("点击关闭闹钟", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(Modifier.height(16.dp))
+
             Text(
-                text = ">>> Slide right to stop >>>",
-                fontSize = 13.sp,
+                text = "或滑动右侧滑块关闭",
+                fontSize = 12.sp,
                 color = Color(0xFF909090),
                 fontWeight = FontWeight.Light,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = 12.dp)
             )
 
             SlideToDismissSlider(
                 onSuccess = onDismiss,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
+                    .height(56.dp)
                     .padding(horizontal = 24.dp)
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                text = "按音量键也可关闭",
+                fontSize = 11.sp,
+                color = Color(0xFF707070),
+                fontWeight = FontWeight.Light
             )
         }
     }
