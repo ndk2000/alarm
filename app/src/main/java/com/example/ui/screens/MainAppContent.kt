@@ -398,7 +398,10 @@ fun MainAppContent(
                     onToggleGroup = onToggleCheckInGroup,
                     onDuplicateGroup = onDuplicateCheckInGroup,
                     onShareGroup = onShareCheckInGroup,
-                    onImportGroup = onImportCheckInGroup
+                    onImportGroup = onImportCheckInGroup,
+                    onCloudShareGroup = onShareCheckInGroup,
+                    offsetHours = duplicateOffsetHours,
+                    offsetMinutes = duplicateOffsetMinutes
                 )
                 6 -> {
                     val ctx = LocalContext.current

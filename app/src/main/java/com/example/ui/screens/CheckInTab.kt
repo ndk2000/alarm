@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -72,7 +74,9 @@ fun CheckInTab(
     onImportGroup: () -> Unit = {},
     onCloudShareGroup: (CheckInGroupEntity) -> Unit = {},
     cloudShareCode: String? = null,
-    cloudShareLoading: Boolean = false
+    cloudShareLoading: Boolean = false,
+    offsetHours: Int = 0,
+    offsetMinutes: Int = 10
 ) {
     var showApplyDialog by remember { mutableStateOf<CheckInGroupEntity?>(null) }
     var deleteConfirm by remember { mutableStateOf<CheckInGroupEntity?>(null) }
@@ -80,6 +84,8 @@ fun CheckInTab(
     var showUploadingDialog by remember { mutableStateOf(false) }
     var uploadStartTime by remember { mutableLongStateOf(0L) }
     val context = LocalContext.current
+    // 规则生成任务默认调用 ViewModel 保存
+    val vm = androidx.lifecycle.viewmodel.compose.viewModel<com.example.ui.AlarmViewModel>()
 
     // 云端分享成功后自动弹出二维码
     LaunchedEffect(cloudShareCode) {
@@ -143,13 +149,17 @@ fun CheckInTab(
                         onDelete = { deleteConfirm = group },
                         onDuplicate = { onDuplicateGroup(group) },
                         onDuplicateTask = { task, copies, interval -> onDuplicateTask(task, group, copies, interval) },
-                        onRuleGenerateTasks = { tasks -> onRuleGenerateTasks(group.id, tasks) },
+                        onRuleGenerateTasks = { tasks ->
+                            vm.addCheckInTasks(group.id, tasks)
+                        },
                         onShare = { onShareGroup(group) },
                         onCloudShare = {
                             uploadStartTime = System.currentTimeMillis()
                             showUploadingDialog = true
                             onCloudShareGroup(group)
-                        }
+                        },
+                        offsetHours = offsetHours,
+                        offsetMinutes = offsetMinutes
                     )
                 }
             }
@@ -369,6 +379,7 @@ fun CheckInTab(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CheckInGroupCard(
     group: CheckInGroupEntity,
@@ -380,7 +391,9 @@ private fun CheckInGroupCard(
     onDuplicateTask: (CheckInTaskEntity, Int, Int) -> Unit = { _, _, _ -> },
     onRuleGenerateTasks: (List<CheckInTaskEntity>) -> Unit = {},
     onShare: () -> Unit = {},
-    onCloudShare: () -> Unit = {}
+    onCloudShare: () -> Unit = {},
+    offsetHours: Int = 0,
+    offsetMinutes: Int = 10
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -411,7 +424,7 @@ private fun CheckInGroupCard(
         var intervalHour by mutableStateOf(intervalHour)
         var intervalMinute by mutableStateOf(intervalMinute)
     }
-    var ruleSegments by remember { mutableStateOf(mutableListOf(TimeSegmentState(), TimeSegmentState("14", "00", "18", "00", "0", "10"))) }
+    var ruleSegments by remember { mutableStateOf(mutableListOf(TimeSegmentState())) }
 
     Card(
         modifier = Modifier
@@ -427,13 +440,13 @@ private fun CheckInGroupCard(
         elevation = CardDefaults.cardElevation(defaultElevation = if (group.isEnabled) 4.dp else 1.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // 顶部：展开按钮 + 组名 + 开关
+            // 展开/折叠按钮 + 组名 + 开关
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 IconButton(
-                    onClick = { expanded = !expanded },
+                    onClick = { expanded = ! expanded },
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
@@ -477,49 +490,46 @@ private fun CheckInGroupCard(
                 )
             }
 
-            // 展开列表
-            if (expanded) {
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 操作按钮行（移到顶部，纯图标）
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onDuplicate, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "复制", modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onShare, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Share, contentDescription = "分享", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(onClick = onCloudShare, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.CloudUpload, contentDescription = "云分享", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.tertiary)
-                    }
-                    // 规则生成按钮
-                    IconButton(onClick = {
-                        ruleNamePrefix = group.name
-                        ruleSegments = mutableListOf(
-                            TimeSegmentState("08", "00", "12", "00", "10"),
-                            TimeSegmentState("14", "00", "18", "00", "10")
-                        )
-                        showRuleDialog = true
-                    }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.DateRange, contentDescription = "规则生成", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
-                    }
+            // ── 操作按钮（始终显示） ──
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            Spacer(modifier = Modifier.height(8.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(20.dp))
                 }
+                IconButton(onClick = onDuplicate, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "复制", modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Share, contentDescription = "分享", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                IconButton(onClick = onCloudShare, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.CloudUpload, contentDescription = "云分享", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.tertiary)
+                }
+                IconButton(onClick = {
+                    ruleNamePrefix = group.name
+                    ruleSegments = mutableListOf(
+                        TimeSegmentState("08", "00", "12", "00", offsetHours.toString(), offsetMinutes.toString())
+                    )
+                    showRuleDialog = true
+                }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.DateRange, contentDescription = "规则生成", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.secondary)
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            Spacer(modifier = Modifier.height(8.dp))
 
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Spacer(modifier = Modifier.height(8.dp))
-
+            // ── 展开后的任务列表 ──
+            if (expanded) {
                 tasks.forEachIndexed { index, task ->
                     Row(
                         modifier = Modifier
@@ -904,4 +914,3 @@ private fun CheckInGroupCard(
         }
     }
 }
-
