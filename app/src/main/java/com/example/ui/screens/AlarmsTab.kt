@@ -48,7 +48,8 @@ fun AlarmsTab(
     onDuplicateAlarm: (Alarm) -> Unit,
     onAddAlarmClick: (Long) -> Unit,
     onMoveAlarmToGroup: (Alarm, Long) -> Unit,
-    onEditAlarm: (Alarm) -> Unit
+    onEditAlarm: (Alarm) -> Unit,
+    onConvertToCheckIn: (AlarmGroup) -> Unit = {}
 ) {
     var alarmToDelete by remember { mutableStateOf<Alarm?>(null) }
     var groupToDelete by remember { mutableStateOf<AlarmGroup?>(null) }
@@ -204,6 +205,14 @@ fun AlarmsTab(
                                         checked = group.isEnabled,
                                         onCheckedChange = { onToggleGroup(group, it) }
                                     )
+
+                                    IconButton(onClick = { onConvertToCheckIn(group) }) {
+                                        Icon(
+                                            imageVector = Icons.Default.SwapHoriz,
+                                            tint = Color(0xFF4CAF50),
+                                            contentDescription = "转为打卡组"
+                                        )
+                                    }
 
                                     IconButton(onClick = { groupToDelete = group }) {
                                         Icon(

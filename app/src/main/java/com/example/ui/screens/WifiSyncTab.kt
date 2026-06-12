@@ -566,17 +566,37 @@ private fun CloudSyncContent(
                         scope.launch {
                             isUploading = true; resultMessage = ""; var ok = 0; var skip = 0
                             for (g in groups) {
-                                if (viewModel.cloudShareRecords.value.any { it.sourceGroupId == g.id && it.groupType == "alarm" }) { skip++; continue }
+                                val existing = viewModel.cloudShareRecords.value.find { it.sourceGroupId == g.id && it.groupType == "alarm" }
+                                if (existing != null) {
+                                    try {
+                                        val cloudJson = cloudService?.downloadConfig(existing.shareCode)
+                                        if (cloudJson != null) {
+                                            val root = org.json.JSONObject(cloudJson)
+                                            val cloudEnabled = root.optBoolean("isEnabled", false)
+                                            val hasField = root.has("isEnabled")
+                                            if (hasField && cloudEnabled == g.isEnabled) { skip++; continue }
+                                        }
+                                    } catch (_: Exception) { }
+                                }
                                 uploadProgress = "上传闹钟组: ${g.name}..."; try { viewModel.shareAlarmGroupToCloud(g); ok++ } catch (e: Exception) { resultMessage += "❌ ${g.name}: ${e.message}\n" }
                             }
                             for (g in checkInGroups) {
-                                if (viewModel.cloudShareRecords.value.any { it.sourceGroupId == g.id && it.groupType == "checkin" }) { skip++; continue }
+                                val existing = viewModel.cloudShareRecords.value.find { it.sourceGroupId == g.id && it.groupType == "checkin" }
+                                if (existing != null) {
+                                    try {
+                                        val cloudJson = cloudService?.downloadConfig(existing.shareCode)
+                                        if (cloudJson != null) {
+                                            val root = org.json.JSONObject(cloudJson)
+                                            val cloudEnabled = root.optBoolean("isEnabled", false)
+                                            val hasField = root.has("isEnabled")
+                                            if (hasField && cloudEnabled == g.isEnabled) { skip++; continue }
+                                        }
+                                    } catch (_: Exception) { }
+                                }
                                 uploadProgress = "上传打卡组: ${g.name}..."; try { viewModel.shareCheckInGroupToCloud(g, checkInTasksMap[g.id] ?: emptyList()); ok++ } catch (e: Exception) { resultMessage += "❌ ${g.name}: ${e.message}\n" }
                             }
-                            uploadProgress = ""; resultMessage += if (ok == 0 && skip > 0) "所有数据均已上传，无需重复操作" else "✅ 上传完成：成功${ok}项，跳过${skip}项"
-                            isUploading = false
                         }
-                    }, modifier = Modifier.fillMaxWidth(),
+                    },
                         enabled = !isUploading && cloudService != null && connectionStatus is CloudService.ConnectionStatus.Connected
                     ) {
                         if (isUploading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)) }
@@ -608,7 +628,7 @@ private fun CloudSyncContent(
                             isDownloading = true; resultMessage = ""; var ok = 0
                             try {
                                 val configs = cloudService?.listConfigs() ?: emptyList()
-                                resultMessage = "【云端共${configs.size}个配置】\n"
+                                resultMessage = "【v3 云端共${configs.size}个配置】\n"
                                 for (c in configs) {
                                     resultMessage += "  type=${c.type.name} code=${c.shareCode} preview=${c.preview.take(20)}\n"
                                 }
@@ -616,6 +636,7 @@ private fun CloudSyncContent(
                                 if (configs.isEmpty()) { resultMessage = "云端没有任何配置数据"; isDownloading = false; return@launch }
                                 for (c in configs) {
                                     downloadProgress = "下载: ${c.shareCode}..."
+                                    // 下载JSON提取组名，查数据库判断是否已有
                                     val json = try { cloudService?.downloadConfig(c.shareCode) } catch (_: Exception) { null }
                                     val name = json?.let { try { org.json.JSONObject(it).optString("groupName", "") } catch (_: Exception) { "" } } ?: ""
                                     if (name.isNotBlank() && viewModel.checkGroupNameExists(name, c.type == ShareDataType.ALARM_GROUP)) {
@@ -623,7 +644,8 @@ private fun CloudSyncContent(
                                     }
                                     try {
                                         val ok2 = if (c.type == ShareDataType.ALARM_GROUP) viewModel.importAlarmGroupFromCloud(c.shareCode) else viewModel.importCheckInGroupFromCloud(c.shareCode)
-                                        if (ok2) ok++ else resultMessage += "❌ ${c.shareCode} 导入失败\n"
+                                        if (ok2) { ok++; resultMessage += "✅ ${c.shareCode} 导入成功\n" }
+                                        else { resultMessage += "❌ ${c.shareCode} 导入失败\n" }
                                     } catch (e: Exception) { resultMessage += "❌ ${c.shareCode}: ${e.message}\n" }
                                 }
                                 resultMessage += "✅ 同步完成：成功导入${ok}项"

@@ -564,7 +564,18 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         },
         onDuplicateCheckInGroup = { viewModel.duplicateCheckInGroup(it) },
         onShareCheckInGroup = onShareCheckInGroup,
-        onImportCheckInGroup = { importCheckInGroupLauncher.launch(arrayOf("application/octet-stream", "application/octet-stream")) }
+        onImportCheckInGroup = { importCheckInGroupLauncher.launch(arrayOf("application/octet-stream", "application/octet-stream")) },
+        onConvertToCheckIn = { group ->
+            val alarms = viewModel.alarms.value.filter { it.groupId == group.id }
+            val tasks = alarms.map { alarm ->
+                com.example.ui.dialogs.CheckInTaskInput(
+                    name = alarm.label.ifBlank { group.name },
+                    hour = alarm.hour.toString(),
+                    minute = alarm.minute.toString()
+                )
+            }
+            viewModel.addCheckInGroup(group.name, tasks)
+        }
     )
 }
 

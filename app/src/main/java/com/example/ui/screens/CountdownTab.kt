@@ -171,6 +171,20 @@ fun CountdownTab(
     val nearestAlarm = if (viewDate == todayDate) {
         countdowns.filter { !it.isPast }.minByOrNull { it.remainingSec }
     } else null
+
+    // 滴答声：当不足2分钟时启动，否则停止
+    LaunchedEffect(nearestAlarm) {
+        if (nearestAlarm != null && nearestAlarm.remainingSec <= 120) {
+            ChimeGenerator.playTickTockContinuous()
+        } else {
+            ChimeGenerator.stopTickTock()
+        }
+    }
+    // 组件卸载时停止滴答声
+    DisposableEffect(Unit) {
+        onDispose { ChimeGenerator.stopTickTock() }
+    }
+
     if (viewDate == todayDate && nearestAlarm != null && nearestAlarm.remainingSec <= 120) {
         FullScreenUrgentView(nearestAlarm, tick)
         return

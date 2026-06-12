@@ -2457,10 +2457,10 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
     }
 
-    fun addCheckInGroup(name: String, tasks: List<CheckInTaskInput>) {
-        viewModelScope.launch(Dispatchers.IO) {
+    private suspend fun addCheckInGroupSuspend(name: String, tasks: List<CheckInTaskInput>, isEnabled: Boolean = false) {
+        withContext(Dispatchers.IO) {
             val groupId = checkInDao.insertGroup(
-                CheckInGroupEntity(name = name, isEnabled = false)
+                CheckInGroupEntity(name = name, isEnabled = isEnabled)
             )
             val entities = tasks.mapIndexed { i, t ->
                 CheckInTaskEntity(
@@ -2474,7 +2474,20 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 )
             }
             checkInDao.insertTasks(entities)
+            // 为新任务生成 TTS 语音缓存文件
+            val appCtx = getApplication<android.app.Application>()
+            for (t in entities) {
+                try {
+                    com.example.alarm.TtsTaskPlayer.generateSync(appCtx, t.name)
+                } catch (_: Exception) { }
+            }
             loadAllCheckInTasks()
+        }
+    }
+
+    fun addCheckInGroup(name: String, tasks: List<CheckInTaskInput>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            addCheckInGroupSuspend(name, tasks)
         }
     }
 
@@ -2740,7 +2753,10 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                     })
                 }
                 val jsonString = cloudService.buildAlarmConfigJson(group.name, alarmsJson)
-                val code = cloudService.uploadConfig(jsonString)
+                val rootWithEnabled = org.json.JSONObject(jsonString).apply {
+                    put("isEnabled", group.isEnabled)
+                }.toString()
+                val code = cloudService.uploadConfig(rootWithEnabled)
                 if (code != null) {
                     _cloudShareCode.value = code
                     addLog("云端分享成功：${group.name} → $code")
@@ -2786,11 +2802,13 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 }
 
                 val groupName = root.optString("groupName", "导入的闹钟组")
+                val groupEnabled = root.optBoolean("isEnabled", true)
+                android.util.Log.d("CloudSync", "importAlarm: group=$groupName isEnabled=$groupEnabled (raw=${root.opt("isEnabled")})")
                 val alarmsArr = root.optJSONArray("alarms") ?: JSONArray()
 
                 // 创建闹钟组
                 val newGroupId = repository.insertGroup(
-                    AlarmGroup(name = groupName, isEnabled = true)
+                    AlarmGroup(name = groupName, isEnabled = groupEnabled)
                 )
 
                 // 创建闹钟
@@ -2845,6 +2863,8 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 }
 
                 val (groupName, tasksArr) = parsed
+                // 读取原始 JSON 中的 isEnabled 状态
+                val isEnabled = try { JSONObject(jsonString).optBoolean("isEnabled", false) } catch (_: Exception) { false }
                 val taskInputs = mutableListOf<CheckInTaskInput>()
                 for (i in 0 until tasksArr.length()) {
                     val t = tasksArr.getJSONObject(i)
@@ -2859,7 +2879,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                     )
                 }
 
-                addCheckInGroup(groupName, taskInputs)
+                addCheckInGroupSuspend(groupName, taskInputs, isEnabled)
 
                 _cloudImportResult.value = "成功导入打卡组「$groupName」（${taskInputs.size} 个任务）"
                 addLog("云端导入打卡组成功：$groupName (${taskInputs.size} tasks, code=$shareCode)")
@@ -2892,7 +2912,10 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                     })
                 }
                 val jsonString = cloudService.buildCheckInConfigJson(group.name, tasksJson)
-                val code = cloudService.uploadConfig(jsonString)
+                val rootWithEnabled = JSONObject(jsonString).apply {
+                    put("isEnabled", group.isEnabled)
+                }.toString()
+                val code = cloudService.uploadConfig(rootWithEnabled)
                 if (code != null) {
                     _cloudShareCode.value = code
                     val record = CloudShareRecord(

@@ -134,6 +134,7 @@ fun MainAppContent(
     onDuplicateCheckInGroup: (CheckInGroupEntity) -> Unit = {},
     onShareCheckInGroup: (CheckInGroupEntity) -> Unit = {},
     onImportCheckInGroup: () -> Unit = {},
+    onConvertToCheckIn: (AlarmGroup) -> Unit = {},
 ) {
     val context = LocalContext.current
     // 当前选中的 tab，0=Alarms, 1=Chimes, 2=WiFi Sync
@@ -156,10 +157,16 @@ fun MainAppContent(
 
     // 实时秒表时间显示逻辑
     var wallClockTime by remember { mutableStateOf("") }
+    var dateWeekStr by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+        val dateFormat = java.text.SimpleDateFormat("yy-MM-dd", java.util.Locale.getDefault())
+        val weekDays = arrayOf("日", "一", "二", "三", "四", "五", "六")
         while (true) {
-            wallClockTime = timeFormat.format(java.util.Date())
+            val now = java.util.Date()
+            wallClockTime = timeFormat.format(now)
+            val cal = java.util.Calendar.getInstance().apply { time = now }
+            dateWeekStr = "${dateFormat.format(now)} 星期${weekDays[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1]}"
             kotlinx.coroutines.delay(1000)
         }
     }
@@ -186,26 +193,26 @@ fun MainAppContent(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            stringResource(R.string.app_title),
+                            text = dateWeekStr,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 18.sp
+                            color = Color(0xFFEF5350),
+                            fontSize = 22.sp
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.weight(1f))
                         
-                        // 增强：高对比度数字表盘时间
+                        // 黑底黄字数字时钟
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = Color.Black.copy(alpha = 0.6f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                            color = Color.Black,
+                            border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.5f))
                         ) {
                             Text(
                                 text = wallClockTime,
-                                fontSize = 15.sp,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF00FF00), // 经典荧光绿，极其显眼
+                                color = Color(0xFFFFD700),
                                 fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
                     }
@@ -213,7 +220,11 @@ fun MainAppContent(
                 actions = {
                     if (currentTab == 0) {
                         IconButton(onClick = { showAddGroupDialog = true }) {
-                            Icon(Icons.Default.GroupAdd, contentDescription = "Add Group")
+                            Icon(Icons.Default.Add, contentDescription = "Add Group")
+                        }
+                    } else if (currentTab == 5) {
+                        IconButton(onClick = { showAddCheckInDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Check-in")
                         }
                     }
                     IconButton(onClick = { showSettingsDialog = true }) {
@@ -224,23 +235,6 @@ fun MainAppContent(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 )
             )
-        },
-        floatingActionButton = {
-            if (currentTab == 0) {
-                FloatingActionButton(
-                    onClick = { showAddGroupDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Group")
-                }
-            } else if (currentTab == 5) {
-                FloatingActionButton(
-                    onClick = { showAddCheckInDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Check-in")
-                }
-            }
         },
         bottomBar = {
             NavigationBar(
@@ -324,6 +318,10 @@ fun MainAppContent(
                     onMoveAlarmToGroup = onMoveAlarmToGroup,
                     onEditAlarm = { alarm ->
                         editingAlarm = alarm
+                    },
+                    onConvertToCheckIn = { group ->
+                        onConvertToCheckIn(group)
+                        android.widget.Toast.makeText(context, "已转为打卡组", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 )
                 1 -> CountdownTab(

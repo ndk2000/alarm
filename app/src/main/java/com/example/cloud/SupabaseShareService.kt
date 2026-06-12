@@ -117,9 +117,11 @@ class SupabaseShareService(
         try {
             val shareCode = generateShareCode()
 
+            val isEnabled = try { org.json.JSONObject(jsonString).optBoolean("isEnabled", false) } catch (_: Exception) { false }
             val bodyJson = JSONObject().apply {
                 put("share_code", shareCode)
                 put("data", jsonString)
+                put("isEnabled", isEnabled)
                 put("download_count", 0)
             }
             val body = bodyJson.toString().toRequestBody(contentTypeHeader.toMediaType())

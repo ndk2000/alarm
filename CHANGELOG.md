@@ -4,6 +4,22 @@
 
 ## Agent工作记录
 
+### 2026-06-11（修复 4 个严重回归 Bug）
+- `AlarmsTab.kt` L40-L52: 恢复闹钟转打卡组功能
+  - 问题：`onConvertToCheckIn` 参数在整个代码库中消失，组卡片上没有 ✅ 转换按钮
+  - 改前：AlarmsTab 没有转换参数，组卡片无转换入口
+  - 改后：新增 `onConvertToCheckIn: (AlarmGroup) -> Unit` 参数，组卡片标题行 Delete 按钮后加绿色 ✅ 按钮
+- `AlarmsTab.kt` L217-L223: 组卡片新增 ✅ 转换按钮
+  - 图标：`Icons.Default.Check`，绿色 `Color(0xFF4CAF50)`
+- `MainAppContent.kt` L137: 参数列表新增 `onConvertToCheckIn`
+- `MainAppContent.kt` L328-L329: 传递给 AlarmsTab
+- `MainActivity.kt` L568-L578: 实现转换逻辑（alarms → CheckInTaskInput → addCheckInGroup）
+  - 修复编译错误：`CheckInTaskInput.hour`/`minute` 为 String 类型，需 `.toString()`
+- `CountdownTab.kt` L175-L186: 恢复<2分钟滴答警告音
+  - 问题：FullScreenUrgentView 只有UI闪烁，未调用 ChimeGenerator.playTickTockContinuous()
+  - 改前：仅 UI 闪烁，无声
+  - 改后：LaunchedEffect(nearestAlarm) 监控，<2分钟播放滴答声，离开停止；DisposableEffect 卸载时停止
+
 ### 2026-06-10（屏幕适配 + 拖拽修复）
 - `ScreenScale.kt` (新文件): 新增屏幕自适应工具 ScreenScaleData，根据屏幕宽度/高度动态计算各组件尺寸
   - 按屏幕宽度比例计算拨盘宽（60~120dp）、拨盘高（140~260dp）

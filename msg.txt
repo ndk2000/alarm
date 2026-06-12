@@ -1,10 +1,13 @@
-feat: 同步Tab拆分+云端同步+清除数据按钮+去重修复 
+feat: 标题栏改日期星期+黑底黄字时钟，加?转换按钮，恢复2分钟滴答声 
  
-- WifiSyncTab 拆分为内部两个Tab 
-- 新增云端同步上传全部/下载全部功能 
-- 新增清除全部本地数据按钮（二次确认） 
-- 底部导航恢复为7个Tab（含倒计时、云端） 
-- 修复云端同步只下打卡组不下闹钟组问题 
-- 使用 viewModel.cloudShareRecords.value 实时检查上传状态 
+- MainAppContent: 标题栏改为红色日期+星期（左）+ 黑底金字时钟（右） 
+- MainAppContent: 右上角加号替代GroupAdd图标，打卡Tab也显示加号 
+- MainAppContent: 去掉右下角FAB浮动按钮 
+- MainAppContent: 新增 onConvertToCheckIn 参数（闹钟组→打卡组转换） 
+- AlarmsTab: 组卡片新增 ? 转换按钮（Switch和删除之间） 
+- AlarmsTab: 去掉拖拽移组功能（删除拖拽手柄、移组提示卡） 
+- MainActivity: 实现 onConvertToCheckIn（alarms转CheckInTaskInput） 
+- CountdownTab: 恢复<2分钟滴答警告音（playTickTockContinuous） 
+- AppSettingsDialog: 设置卡片背景加深至70%%，加阴影、分割线 
  
 Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com> 
