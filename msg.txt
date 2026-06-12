@@ -1,8 +1,0 @@
-fix: 闹钟编辑添加语音合成选项 + 响铃支持 TTS 模式
-
-- AlarmService: 新增 TTS_RINGTONE_MARKER = "__TTS__" 标记
-- AlarmService: startRingingForeground 判断 TTS 模式，不播放铃声直接朗读标签
-- AddAlarmDialog: 铃声选择区新增「🔊 语音合成（朗读标签文字）」选项
-- AddAlarmDialog: 选中语音合成时背景高亮，ringtonePath 设为 __TTS__
-
-Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
