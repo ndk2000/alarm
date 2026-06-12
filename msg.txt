@@ -1,0 +1,10 @@
+fix: TtsTaskPlayer 监听器覆盖导致批量生成失败
+
+- 问题：每次 generateSync 调用 setOnUtteranceProgressListener 覆盖前一次监听器，
+  导致前一个文件的合成完成事件丢失，latch 超时返回 null
+- 修复：onInit 中设置统一的监听器，通过 ConcurrentHashMap 管理 utteranceId→latch
+- 新增 syncLatches 字段，onDone/onError 时按 utteranceId 释放对应 latch
+- shutdown 时释放所有等待的 latch 避免死等
+- generateSync 失败时增加详细日志（区分超时/文件不存在/文件为空）
+
+Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>

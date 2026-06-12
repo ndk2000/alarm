@@ -32,6 +32,9 @@ object TtsTaskPlayer : TextToSpeech.OnInitListener {
     /** 待播放队列：合成完成后再播放 */
     private val pendingQueue = mutableListOf<Pair<String, ((String) -> Unit)?>>()
 
+    /** 同步合成等待队列：utteranceId → CountDownLatch */
+    private val syncLatches = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
+
     // ─── 全局 TTS 设置 ───
     var pitch: Float = 1.0f
         set(value) { field = value; tts?.setPitch(value) }
@@ -235,42 +238,37 @@ object TtsTaskPlayer : TextToSpeech.OnInitListener {
 
         val latch = java.util.concurrent.CountDownLatch(1)
         val utteranceId = "sync_${cached.nameWithoutExtension}_${System.currentTimeMillis()}"
-        val capturedId = utteranceId
-
-        // 注册临时监听，等待合成完成
-        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == capturedId) {
-                    latch.countDown()
-                }
-            }
-            override fun onError(utteranceId: String?) {
-                if (utteranceId == capturedId) {
-                    latch.countDown()
-                }
-            }
-        })
+        syncLatches[utteranceId] = latch
 
         val result = tts?.synthesizeToFile(text, null, cached, utteranceId)
         if (result != TextToSpeech.SUCCESS) {
-            Log.w(TAG, "synthesizeToFile 失败: result=$result")
+            syncLatches.remove(utteranceId)
+            Log.w(TAG, "synthesizeToFile 失败: result=$result, text=\"$text\"")
             return null
         }
 
         // 等待合成完成，最多 timeoutMs
         val completed = latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        syncLatches.remove(utteranceId)
         if (completed && cached.exists() && cached.length() > 0) {
-            Log.d(TAG, "同步合成完成: ${cached.absolutePath}")
+            Log.d(TAG, "同步合成完成: ${cached.absolutePath} (${cached.length()} bytes)")
             return cached.absolutePath
         } else {
-            Log.w(TAG, "同步合成超时或失败: $text")
+            if (!completed) {
+                Log.w(TAG, "同步合成超时 ($timeoutMs ms): text=\"$text\"")
+            } else if (!cached.exists()) {
+                Log.w(TAG, "合成返回成功但文件不存在: text=\"$text\", file=${cached.absolutePath}")
+            } else if (cached.length() == 0L) {
+                Log.w(TAG, "合成文件为空: text=\"$text\", file=${cached.absolutePath}")
+            }
             return null
         }
     }
 
     /** 释放 TTS 资源 */
     fun shutdown() {
+        syncLatches.values.forEach { it.countDown() }
+        syncLatches.clear()
         tts?.stop()
         tts?.shutdown()
         tts = null
@@ -331,14 +329,19 @@ object TtsTaskPlayer : TextToSpeech.OnInitListener {
             client.setSpeechRate(speechRate)
             applyVoice()
 
-            // 注册合成完成监听
+            // 注册统一的合成完成监听（不要每次在 generateSync 中覆盖）
             client.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
-                    // 由 doSynthesize 中的回调处理
+                    utteranceId?.let { id ->
+                        syncLatches.remove(id)?.countDown()
+                    }
                 }
                 override fun onError(utteranceId: String?) {
                     Log.e(TAG, "合成失败: utteranceId=$utteranceId")
+                    utteranceId?.let { id ->
+                        syncLatches.remove(id)?.countDown()
+                    }
                 }
             })
 
