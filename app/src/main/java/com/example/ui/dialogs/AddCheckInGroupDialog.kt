@@ -30,6 +30,9 @@ import com.example.R
 import com.example.alarm.TtsTaskPlayer
 import com.example.db.CheckInTaskEntity
 import com.example.db.CheckInGroupEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 data class CheckInTaskInput(
     val name: String = "",
     val hour: String = "8",
@@ -53,7 +56,7 @@ private fun hourMinuteToChineseUpper(hour: Int, minute: Int): String {
     return if (minute == 0) "${h}点" else "${h}点${numToUpper(minute)}分"
 }
 
-private fun digitsToChineseUpper(text: String): String {
+internal fun digitsToChineseUpper(text: String): String {
     val cns = arrayOf("零", "一", "二", "三", "四", "五", "六", "七", "八", "九")
     val units = arrayOf("", "十", "百", "千")
     fun numberToChinese(n: Int): String {
@@ -73,8 +76,10 @@ private fun digitsToChineseUpper(text: String): String {
             num /= 10
             ui++
         }
+        result = result.trimEnd('零')
         return if (result.startsWith("一十")) result.substring(1) else result
     }
+    // 整体转换：把整个字符串中的数字转汉字，非数字部分保留
     return text.replace(Regex("\\d+")) { numberToChinese(it.value.toInt()) }
 }
 
@@ -127,9 +132,32 @@ fun AddCheckInGroupDialog(
 
     val isEdit = existingGroup != null
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // 批量生成进度
+    var isGenerating by remember { mutableStateOf(false) }
+    var genCurrent by remember { mutableIntStateOf(0) }
+    var genTotal by remember { mutableIntStateOf(0) }
+
+    // 跟踪本次对话框期间生成的 TTS 缓存文件，取消时清理
+    val generatedCachePaths = remember { mutableStateListOf<String>() }
+    val dismissWithCleanup = {
+        // 删除本次生成但未保存的 TTS 缓存文件
+        for (path in generatedCachePaths) {
+            try {
+                val f = java.io.File(path)
+                if (f.exists()) {
+                    f.delete()
+                    android.util.Log.d("AddCheckInGroupDlg", "取消时删除缓存: $path")
+                }
+            } catch (_: Exception) { }
+        }
+        generatedCachePaths.clear()
+        onDismiss()
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismissWithCleanup,
         modifier = Modifier.fillMaxWidth(0.96f),
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         title = {
@@ -146,6 +174,29 @@ fun AddCheckInGroupDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // 生成进度横幅（始终在最顶部）
+                if (isGenerating) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            LinearProgressIndicator(
+                                progress = { (genCurrent.toFloat() / genTotal.toFloat()).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth().height(8.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Text("语音合成中（$genCurrent / $genTotal）",
+                                fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+
                 // 组名称
                 OutlinedTextField(
                     value = groupName,
@@ -231,6 +282,7 @@ fun AddCheckInGroupDialog(
                                     onClick = {
                                         // 试听并自动设为铃声
                                         TtsTaskPlayer.play(context, task.name) { cachedPath ->
+                                            generatedCachePaths.add(cachedPath)
                                             tasks = tasks.toMutableList().also {
                                                 it[index] = task.copy(ringtonePath = cachedPath, useTts = true)
                                             }
@@ -248,23 +300,18 @@ fun AddCheckInGroupDialog(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                if (tasks.size > 1) {
-                                    IconButton(
-                                        onClick = { taskToDeleteIndex = index },
+                                IconButton(
+                                    onClick = { taskToDeleteIndex = index },
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Delete,
                                             contentDescription = "Delete",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
-                            }
 
-                            Spacer(modifier = Modifier.height(4.dp))
-
+                                Spacer(modifier = Modifier.height(4.dp))
                             // 时间选择
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -526,7 +573,6 @@ fun AddCheckInGroupDialog(
                             Button(
                                 onClick = {
                                     val prefix = digitsToChineseUpper(batchNamePrefix.ifBlank { groupName.ifBlank { "打卡" } })
-                                    val newTasks = mutableListOf<CheckInTaskInput>()
                                     val sh = batchStartHour.toIntOrNull() ?: 8
                                     val sm = batchStartMin.toIntOrNull() ?: 0
                                     val eh = batchEndHour.toIntOrNull() ?: 12
@@ -537,30 +583,48 @@ fun AddCheckInGroupDialog(
                                     if (totalInterval > 0) {
                                         val startTotal = sh * 60 + sm
                                         val endTotal = eh * 60 + em
+                                        // 先算总数
+                                        var total = 0
                                         var cur = startTotal
-                                        var seqIndex = 1
-                                        while (cur <= endTotal) {
-                                            val h = cur / 60
-                                            val m = cur % 60
-                                            val ttsText = "${prefix}现在是${hourMinuteToChineseUpper(h, m)} 第${numToUpper(seqIndex)}次打卡"
-                                            // 同步生成 TTS 语音文件，等就绪后再加任务
-                                            val cachedPath = TtsTaskPlayer.generateSync(context, ttsText)
-                                            newTasks.add(CheckInTaskInput(
-                                                name = ttsText,
-                                                hour = h.toString(),
-                                                minute = m.toString(),
-                                                ringtonePath = cachedPath,
-                                                useTts = true
-                                            ))
-                                            seqIndex++
-                                            cur += totalInterval
+                                        while (cur <= endTotal) { total++; cur += totalInterval }
+
+                                        val finalTotal = total
+                                        isGenerating = true
+                                        genCurrent = 0
+                                        genTotal = finalTotal
+
+                                        scope.launch(Dispatchers.IO) {
+                                            val newTasks = mutableListOf<CheckInTaskInput>()
+                                            var cur2 = startTotal
+                                            var seqIndex = 1
+                                            while (cur2 <= endTotal) {
+                                                val h = cur2 / 60
+                                                val m = cur2 % 60
+                                                val rawText = "${prefix}现在是${h}点${m}分 第${seqIndex}次打卡"
+                                                val ttsText = digitsToChineseUpper(rawText)
+                                                // 生成 TTS
+                                                val cachedPath = TtsTaskPlayer.generateSync(context, ttsText)
+                                                if (cachedPath != null) {
+                                                    withContext(Dispatchers.Main) { generatedCachePaths.add(cachedPath) }
+                                                }
+                                                newTasks.add(CheckInTaskInput(
+                                                    name = ttsText, hour = h.toString(), minute = m.toString(),
+                                                    ringtonePath = cachedPath, useTts = true
+                                                ))
+                                                seqIndex++
+                                                cur2 += totalInterval
+                                                withContext(Dispatchers.Main) { genCurrent = seqIndex - 1 }
+                                            }
+                                            withContext(Dispatchers.Main) {
+                                                tasks = (tasks + newTasks).toMutableList()
+                                                showBatchGen = false
+                                                isGenerating = false
+                                            }
                                         }
+                                        // 将间隔保存到设置的偏移里
+                                        if (ih != offsetHours) onSetOffsetHours(ih)
+                                        if (im != offsetMinutes) onSetOffsetMinutes(im)
                                     }
-                                    tasks = (tasks + newTasks).toMutableList()
-                                    showBatchGen = false
-                                    // 将间隔保存到设置的偏移里
-                                    if (ih != offsetHours) onSetOffsetHours(ih)
-                                    if (im != offsetMinutes) onSetOffsetMinutes(im)
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -583,7 +647,7 @@ fun AddCheckInGroupDialog(
                     containerColor = Color(0xFF0D3269),
                     contentColor = Color(0xFFADC6FF)
                 ),
-                enabled = groupName.isNotBlank()
+                enabled = groupName.isNotBlank() && !isGenerating
             ) {
                 Text(
                     if (isEdit) stringResource(R.string.save) else stringResource(R.string.create),
@@ -592,7 +656,7 @@ fun AddCheckInGroupDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = dismissWithCleanup, enabled = !isGenerating) {
                 Text(stringResource(R.string.cancel), color = Color(0xFF8E9099))
             }
         },

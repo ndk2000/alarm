@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
@@ -142,6 +143,12 @@ fun MainAppContent(
     var showSettingsDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // TTS 缓存管理进度
+    var showTtsProgress by remember { mutableStateOf(false) }
+    var ttsProgressText by remember { mutableStateOf("") }
+    var ttsProgressCurrent by remember { mutableIntStateOf(0) }
+    var ttsProgressTotal by remember { mutableIntStateOf(0) }
+
     // 当进入 WiFi 同步页时开始自动发现，离开时停止
     LaunchedEffect(currentTab) {
         if (currentTab == 4) {
@@ -154,6 +161,8 @@ fun MainAppContent(
     // 报时风格状态 (0 = TTS语音, 1 = 悦耳钟声)
     val chimePrefs = context.getSharedPreferences("chime_prefs", 0)
     var chimeStyle by remember { mutableIntStateOf(chimePrefs.getInt("chime_style", 0)) }
+    var ttsPitch by remember { mutableStateOf(1.0f) }
+    var ttsRate by remember { mutableStateOf(1.0f) }
 
     // 实时秒表时间显示逻辑
     var wallClockTime by remember { mutableStateOf("") }
@@ -565,7 +574,123 @@ fun MainAppContent(
             onSetDatabaseDirectoryPath = onSetDatabaseDirectoryPath,
             onSetAutoUpdate = onSetAutoUpdateEnabled,
             onCheckUpdate = onCheckUpdate,
-            onDismiss = { showSettingsDialog = false }
+            onDismiss = { showSettingsDialog = false },
+            availableTtsEngines = availableTtsEngines,
+            selectedTtsEngine = selectedTtsEngine,
+            onSetTtsEngine = onSetTtsEngine,
+            availableVoices = availableVoices,
+            selectedTtsVoice = selectedTtsVoice,
+            onSetTtsVoice = onSetTtsVoice,
+            ttsPitch = ttsPitch,
+            ttsRate = ttsRate,
+            onSetTtsPitch = { onSetTtsPitch(it); ttsPitch = it },
+            onSetTtsRate = { onSetTtsRate(it); ttsRate = it },
+            onTestTts = onTestTts,
+            onScanTtsEngines = onScanTtsEngines,
+            debugLogs = debugLogs,
+            onCleanupUnusedCache = {
+                ttsProgressText = "正在扫描缓存文件..."
+                ttsProgressCurrent = 0
+                ttsProgressTotal = 100
+                showTtsProgress = true
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val usedTexts = checkInTasksMap.values.flatten()
+                        .filter { it.useTts }
+                        .map { it.name }
+                        .toSet()
+                    val (deleted, freedBytes) = com.example.alarm.TtsTaskPlayer.cleanupUnused(context, usedTexts)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        showTtsProgress = false
+                        if (deleted > 0) {
+                            val mb = freedBytes / (1024 * 1024)
+                            val kb = (freedBytes % (1024 * 1024)) / 1024
+                            android.widget.Toast.makeText(context,
+                                "已清除 $deleted 个文件（${mb}MB ${kb}KB）",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            android.widget.Toast.makeText(context,
+                                "没有需要清除的缓存",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            },
+            onRebuildMissingCache = {
+                ttsProgressText = "正在统计需要生成的语音..."
+                ttsProgressCurrent = 0
+                showTtsProgress = true
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val allTexts = checkInTasksMap.values.flatten()
+                        .filter { it.useTts }
+                        .map { it.name }
+                        .distinct()
+                    val toGenerate = allTexts.filter { text ->
+                        // 只生成缺失的
+                        val f = com.example.alarm.TtsTaskPlayer.cacheFile(context, text)
+                        !f.exists() || f.length() == 0L
+                    }
+                    ttsProgressTotal = toGenerate.size
+                    var count = 0
+                    for (text in toGenerate) {
+                        val idx = count
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            ttsProgressText = "语音合成中"
+                            ttsProgressCurrent = idx + 1
+                        }
+                        com.example.alarm.TtsTaskPlayer.generateSync(context, text)
+                        count++
+                    }
+                    // 统计总容量
+                    val dir = com.example.alarm.TtsTaskPlayer.getCacheDir(context)
+                    var totalBytes = 0L
+                    dir.listFiles()?.forEach { if (it.isFile) totalBytes += it.length() }
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        showTtsProgress = false
+                        val mb = totalBytes / (1024 * 1024)
+                        val kb = (totalBytes % (1024 * 1024)) / 1024
+                        android.widget.Toast.makeText(context,
+                            "已生成 $count 个文件，缓存总容量 ${mb}MB ${kb}KB（${allTexts.size} 个文本）",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        )
+    }
+
+    // ── TTS 缓存管理进度对话框 ──
+    if (showTtsProgress) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("语音缓存管理", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    if (ttsProgressTotal > 0) {
+                        LinearProgressIndicator(
+                            progress = { (ttsProgressCurrent.toFloat() / ttsProgressTotal.toFloat()).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(8.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(ttsProgressText,
+                            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text("$ttsProgressCurrent / $ttsProgressTotal",
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        CircularProgressIndicator(modifier = Modifier.size(48.dp), strokeWidth = 4.dp)
+                        Spacer(Modifier.height(16.dp))
+                        Text(ttsProgressText, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            },
+            confirmButton = {},
+            containerColor = MaterialTheme.colorScheme.surface
         )
     }
 
@@ -590,6 +715,10 @@ fun MainAppContent(
                 showAddCheckInDialog = false
                 editingCheckInGroup = null
             },
+            offsetHours = duplicateOffsetHours,
+            offsetMinutes = duplicateOffsetMinutes,
+            onSetOffsetHours = onSetDuplicateOffsetHours,
+            onSetOffsetMinutes = onSetDuplicateOffsetMinutes,
             onConfirm = { name, tasks ->
                 if (editingGroup != null) {
                     onUpdateCheckInGroup(editingGroup, tasks)

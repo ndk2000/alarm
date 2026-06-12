@@ -35,8 +35,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.speech.tts.TextToSpeech.EngineInfo
+import android.speech.tts.Voice
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Delete
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
@@ -49,6 +55,7 @@ private data class SettingsTab(
 private val tabs = listOf(
     SettingsTab("🌐", "通用"),
     SettingsTab("⏱", "偏移"),
+    SettingsTab("🎤", "语音"),
     SettingsTab("🔋", "电池"),
     SettingsTab("📋", "关于", R.string.about_section),
     SettingsTab("🔐", "权限")
@@ -71,7 +78,23 @@ fun AppSettingsDialog(
     onSetDatabaseDirectoryPath: (String) -> Unit,
     onSetAutoUpdate: (Boolean) -> Unit,
     onCheckUpdate: () -> Unit = {},
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // 语音合成(TTS)参数
+    availableTtsEngines: List<EngineInfo> = emptyList(),
+    selectedTtsEngine: String = "",
+    onSetTtsEngine: (String) -> Unit = {},
+    availableVoices: List<Voice> = emptyList(),
+    selectedTtsVoice: String = "",
+    onSetTtsVoice: (String) -> Unit = {},
+    ttsPitch: Float = 1.0f,
+    ttsRate: Float = 1.0f,
+    onSetTtsPitch: (Float) -> Unit = {},
+    onSetTtsRate: (Float) -> Unit = {},
+    onTestTts: (Int) -> Unit = {},
+    onScanTtsEngines: () -> Unit = {},
+    debugLogs: List<String> = emptyList(),
+    onCleanupUnusedCache: () -> Unit = {},
+    onRebuildMissingCache: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var tempPath by remember { mutableStateOf(recordingPath) }
@@ -220,9 +243,26 @@ fun AppSettingsDialog(
                                 onSetOffsetHours = onSetOffsetHours,
                                 onSetOffsetMinutes = onSetOffsetMinutes
                             )
-                            2 -> BatteryContent()
-                            3 -> AboutContent()
-                            4 -> PermissionContent(
+                            2 -> TtsSettingsContent(
+                                availableTtsEngines = availableTtsEngines,
+                                selectedTtsEngine = selectedTtsEngine,
+                                onSetTtsEngine = onSetTtsEngine,
+                                availableVoices = availableVoices,
+                                selectedTtsVoice = selectedTtsVoice,
+                                onSetTtsVoice = onSetTtsVoice,
+                                ttsPitch = ttsPitch,
+                                ttsRate = ttsRate,
+                                onSetTtsPitch = onSetTtsPitch,
+                                onSetTtsRate = onSetTtsRate,
+                                onTestTts = onTestTts,
+                                onScanTtsEngines = onScanTtsEngines,
+                                debugLogs = debugLogs,
+                                onCleanupUnusedCache = onCleanupUnusedCache,
+                                onRebuildMissingCache = onRebuildMissingCache
+                            )
+                            3 -> BatteryContent()
+                            4 -> AboutContent()
+                            5 -> PermissionContent(
                                 context = context,
                                 onRequestPermissions = { /* handled inside */ }
                             )
@@ -440,6 +480,157 @@ private fun PermissionContent(
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary, contentColor = MaterialTheme.colorScheme.onSecondary)
         ) { Text("请求文件访问权限", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
     }
+}
+
+// ════ 语音合成(TTS)设置 ════
+@Composable
+private fun TtsSettingsContent(
+    availableTtsEngines: List<EngineInfo>,
+    selectedTtsEngine: String,
+    onSetTtsEngine: (String) -> Unit,
+    availableVoices: List<Voice>,
+    selectedTtsVoice: String,
+    onSetTtsVoice: (String) -> Unit,
+    ttsPitch: Float,
+    ttsRate: Float,
+    onSetTtsPitch: (Float) -> Unit,
+    onSetTtsRate: (Float) -> Unit,
+    onTestTts: (Int) -> Unit,
+    onScanTtsEngines: () -> Unit,
+    debugLogs: List<String>,
+    onCleanupUnusedCache: () -> Unit,
+    onRebuildMissingCache: () -> Unit
+) {
+    val ctx = LocalContext.current
+    var localPitch by remember(ttsPitch) { mutableStateOf(ttsPitch) }
+    var localRate by remember(ttsRate) { mutableStateOf(ttsRate) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+    // ── TTS 引擎选择 ──
+    SettingsSectionCard("TTS 引擎") {
+        var engineExpanded by remember { mutableStateOf(false) }
+        val currentEngineLabel = availableTtsEngines.find { it.name == selectedTtsEngine }?.label
+            ?: if (selectedTtsEngine.isNotEmpty()) selectedTtsEngine else "系统默认"
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("引擎", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(48.dp))
+            Box(modifier = Modifier.weight(1f).clickable { engineExpanded = true }) {
+                Text(currentEngineLabel.toString(), fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                DropdownMenu(expanded = engineExpanded, onDismissRequest = { engineExpanded = false }) {
+                    DropdownMenuItem(text = { Text("系统默认") }, onClick = { onSetTtsEngine(""); engineExpanded = false })
+                    availableTtsEngines.forEach { e ->
+                        DropdownMenuItem(text = { Text("${e.label}（${e.name}）") }, onClick = { onSetTtsEngine(e.name); engineExpanded = false })
+                    }
+                }
+            }
+            IconButton(onClick = onScanTtsEngines, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
+            Icon(Icons.Default.ArrowDropDown, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp).clickable { engineExpanded = true })
+        }
+    }
+
+    // ── 语音选择 ──
+    SettingsSectionCard("语音") {
+        var voiceExpanded by remember { mutableStateOf(false) }
+        val currentVoiceName = availableVoices.find { it.name == selectedTtsVoice }?.let {
+            "${it.name}（${it.locale}）"
+        } ?: if (selectedTtsVoice.isNotEmpty()) selectedTtsVoice else "默认"
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("语音", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(48.dp))
+            Box(modifier = Modifier.weight(1f).clickable { voiceExpanded = true }) {
+                Text(currentVoiceName, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                DropdownMenu(expanded = voiceExpanded, onDismissRequest = { voiceExpanded = false }) {
+                    DropdownMenuItem(text = { Text("默认") }, onClick = { onSetTtsVoice(""); voiceExpanded = false })
+                    availableVoices.forEach { v ->
+                        val label = "${v.name}（${v.locale}）"
+                        DropdownMenuItem(text = { Text(label) }, onClick = { onSetTtsVoice(v.name); voiceExpanded = false })
+                    }
+                }
+            }
+            Icon(Icons.Default.ArrowDropDown, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp).clickable { voiceExpanded = true })
+        }
+    }
+
+    // ── 语速与音调 ──
+    SettingsSectionCard("语速与音调") {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("语速", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(40.dp))
+            Slider(value = localRate, onValueChange = { localRate = it; onSetTtsRate(it) }, valueRange = 0.1f..3.0f,
+                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.weight(1f))
+            Text("${String.format("%.1f", localRate)}x", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(40.dp))
+        }
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("音调", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(40.dp))
+            Slider(value = localPitch, onValueChange = { localPitch = it; onSetTtsPitch(it) }, valueRange = 0.1f..3.0f,
+                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.weight(1f))
+            Text("${String.format("%.1f", localPitch)}x", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(40.dp))
+        }
+    }
+
+    // ── 语音测试 ──
+    SettingsSectionCard("语音测试") {
+        Button(onClick = {
+            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            onTestTts(hour)
+            Toast.makeText(ctx, "正在测试：这是语音合成测试效果", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("测试：这是语音合成测试效果", fontSize = 15.sp)
+        }
+    }
+
+    // ── 缓存管理 ──
+    SettingsSectionCard("🗑 语音缓存管理") {
+        Text("TTS 语音缓存文件存放在: ${ctx.filesDir}/tts_task_cache", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+
+        // 清除未使用
+        Button(
+            onClick = onCleanupUnusedCache,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                contentColor = MaterialTheme.colorScheme.onError
+            )
+        ) {
+            Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onError, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("清除未使用的缓存", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Text("删除所有未被打卡任务和闹钟引用的缓存文件。", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        Spacer(Modifier.height(12.dp))
+
+        // 重建缺失
+        Button(
+            onClick = onRebuildMissingCache,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("重建缺失的缓存", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Text("遍历所有打卡任务，补生成尚未缓存的语音文件，已有文件不受影响。", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    if (debugLogs.isNotEmpty()) {
+        SettingsSectionCard("调试日志") {
+            debugLogs.takeLast(20).forEach { log ->
+                Text(log, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
 }
 
 // ════ 辅助：卡片容器 ════

@@ -623,6 +623,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         val savedVoice = prefs.getString("tts_voice", "") ?: ""
         _selectedTtsEngine.value = savedEngine
         _selectedTtsVoiceName.value = savedVoice
+        // 同步引擎和语音到 TtsTaskPlayer（全局 TTS 播放器）
+        com.example.alarm.TtsTaskPlayer.engineName = savedEngine
+        com.example.alarm.TtsTaskPlayer.voiceName = savedVoice
         addLog("恢复 TTS 引擎: $savedEngine, 语音: $savedVoice")
 
         // 恢复在线 TTS 配置
@@ -2056,12 +2059,14 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     fun setTtsPitch(pitch: Float) {
         ttsPitch = pitch
         val result = tts?.setPitch(pitch)
+        com.example.alarm.TtsTaskPlayer.pitch = pitch
         addLog("调节音调为: $pitch, 结果: $result")
     }
 
     fun setTtsRate(rate: Float) {
         ttsRate = rate
         val result = tts?.setSpeechRate(rate)
+        com.example.alarm.TtsTaskPlayer.speechRate = rate
         addLog("调节语速为: $rate, 结果: $result")
     }
 
@@ -2109,6 +2114,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
 
     // 切换 TTS 引擎：保存偏好、关闭旧引擎、用新引擎包名重新创建
     fun setTtsEngine(engineName: String) {
+        // 先同步到 TtsTaskPlayer（无论是否 early return）
+        com.example.alarm.TtsTaskPlayer.engineName = engineName
+
         if (engineName == _selectedTtsEngine.value) return
         addLog("切换 TTS 引擎至: $engineName")
         
@@ -2147,6 +2155,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
 
     // 设置 TTS 语音：保存偏好、调用 setVoice
     fun setTtsVoice(voiceName: String) {
+        // 先同步到 TtsTaskPlayer（无论是否 early return，都要确保全局生效）
+        com.example.alarm.TtsTaskPlayer.voiceName = voiceName
+
         if (voiceName == _selectedTtsVoiceName.value) return
         addLog("设置 TTS 语音至: $voiceName")
         
@@ -2166,7 +2177,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         } else {
             addLog("TTS 尚未就绪，语音将在下次初始化时应用")
         }
-        
+
         // 通知后台 AlarmService 同步更新语音
         val intent = Intent(getApplication(), AlarmService::class.java).apply {
             action = "UPDATE_TTS_VOICE"
@@ -2613,6 +2624,13 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 task.copy(id = 0, groupId = groupId, orderIndex = maxOrder + 1 + index)
             }
             checkInDao.insertTasks(newTasks)
+            // 为新任务生成 TTS 语音缓存
+            val appCtx = getApplication<android.app.Application>()
+            for (t in newTasks) {
+                try {
+                    com.example.alarm.TtsTaskPlayer.generateSync(appCtx, t.name)
+                } catch (_: Exception) { }
+            }
             loadAllCheckInTasks()
         }
     }

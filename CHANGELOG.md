@@ -20,6 +20,57 @@
   - 改前：仅 UI 闪烁，无声
   - 改后：LaunchedEffect(nearestAlarm) 监控，<2分钟播放滴答声，离开停止；DisposableEffect 卸载时停止
 
+### 2026-06-11（添加 TTS 调试日志）
+- `TtsTaskPlayer.kt` L35-L62: voiceName setter 和 applyVoice() 添加详细 logcat 输出
+  - 添加：设置 voiceName 时打印新旧值
+  - 添加：applyVoice 时打印引擎名、匹配到的语音名和 locale、未匹配时列出前10个可用语音
+  - 添加：voiceName 为空或 tts 未初始化时分别提示
+- `TtsTaskPlayer.kt` L202-L222: onInit 中添加引擎信息、当前参数、可用语音列表前5个的日志
+- `TtsTaskPlayer.kt` L134-L151: generateSync 中添加当前 voiceName 和实际语音的日志
+- `TtsTaskPlayer.kt` L261: doSynthesize 中合成日志增加 voiceName 和实际语音信息
+
+### 2026-06-12（修复 generateSync 在 TTS 未就绪时直接返回 null）
+- `TtsTaskPlayer.kt` L25-L26: isReady 添加 @Volatile 注解确保跨线程可见性
+- `TtsTaskPlayer.kt` L28-29: 新增 initLatch (CountDownLatch) 用于后台线程等待 TTS 初始化
+- `TtsTaskPlayer.kt` L64-70: 新增 ensureInitialized(context) 公共方法，可提前预初始化 TTS
+- `TtsTaskPlayer.kt` L210-217: ensure() 中创建 TTS 实例时同时创建新的 initLatch
+- `TtsTaskPlayer.kt` L253, L263: onInit 成功/失败时均释放 initLatch，避免死等
+- `TtsTaskPlayer.kt` L144-160: generateSync 中 !isReady 时不再直接返回 null
+  - 问题：ensure() 在主线程创建 TTS 后 onInit 异步回调，isReady 仍为 false → 直接返回 null
+  - 改前：Log.w + return null，导致所有任务都拿不到缓存语音
+  - 改后：判断当前线程——后台线程通过 initLatch.await() 等待初始化完成；
+    主线程加入 pendingQueue 并由 onInit 自动处理，日志清晰提示
+
+### 2026-06-12（取消打卡组对话框时删除已生成的 TTS 缓存）
+- `AddCheckInGroupDialog.kt` L133-L148: 新增 `generatedCachePaths` 列表跟踪本次对话框生成的 TTS 缓存文件 + `dismissWithCleanup` 包装函数
+  - 问题：点"生成"按钮创建了 TTS 缓存文件，但点"取消"时文件残留不删除，只增不减
+  - 改前：`onDismiss` 直接调用，不清理任何缓存
+  - 改后：`dismissWithCleanup` 先删除 `generatedCachePaths` 中的所有文件，再调 `onDismiss`
+- `AddCheckInGroupDialog.kt` L151: `onDismissRequest` 改为 `dismissWithCleanup`
+- `AddCheckInGroupDialog.kt` L611: 取消按钮 `onClick` 改为 `dismissWithCleanup`
+- `AddCheckInGroupDialog.kt` L564-L566: 批量生成时记录返回的缓存路径到 `generatedCachePaths`
+- `AddCheckInGroupDialog.kt` L253: 试听按钮回调中也记录缓存路径到 `generatedCachePaths`
+
+### 2026-06-12（修复第一次生成语音指派不上）
+- `TtsTaskPlayer.kt` L282-L310: `ensure()` 重构，不在主线程时通过 Handler 切到主线程创建 TTS
+  - 问题：`scope.launch(Dispatchers.IO)` 中调用 `generateSync` → `ensure()` 在 IO 线程创建 TextToSpeech，没有 Looper 导致 `onInit` 可能永远不回调 → `isReady` 始终 false → 返回 null
+  - 改后：判断当前线程，非主线程则 `Handler(Looper.getMainLooper()).post` 到主线程创建，`CountDownLatch` 等待完成
+
+### 2026-06-12（修复 TtsTaskPlayer 没有使用用户选择的 TTS 引擎）
+- `TtsTaskPlayer.kt` L40-L48: 新增 `engineName` 属性，setter 中引擎改变时自动 shutdown 重建
+- `TtsTaskPlayer.kt` L282-L291: `ensure()` 创建 TTS 时使用 `engineName` 传参（之前写死默认引擎）
+  - 问题：`TextToSpeech(ctx, this)` 没传引擎包名，永远用系统默认引擎，用户选的 Google TTS 无效
+  - 改后：`TextToSpeech(ctx, this, enginePkg)` 使用用户选择的引擎
+- `AlarmViewModel.kt` L627: init 恢复引擎时同步到 `TtsTaskPlayer.engineName`
+- `AlarmViewModel.kt` L2117-L2118: `setTtsEngine()` 中先同步引擎到 `TtsTaskPlayer`
+- `TtsTaskPlayer.kt` L46-47: 引擎改变时调用 `shutdown()`，下次 `ensure()` 用新引擎重建实例
+
+### 2026-06-12（修复 TtsTaskPlayer.voiceName 没有全局同步的问题）
+- `AlarmViewModel.kt` L626-L627: init 恢复保存的语音后，同步设置 `TtsTaskPlayer.voiceName`
+  - 问题：App 启动时只恢复了 `_selectedTtsVoiceName.value`，没同步到 `TtsTaskPlayer`，导致即使之前选过语音，`voiceName` 仍为空
+- `AlarmViewModel.kt` L2154-L2155: `setTtsVoice()` 中将 `TtsTaskPlayer.voiceName` 设置移到 early return 之前
+  - 问题：用户重新点击已选中的语音时，`voiceName == _selectedTtsVoiceName.value` 触发 early return，`TtsTaskPlayer.voiceName` 永远不会被设置
+
 ### 2026-06-10（屏幕适配 + 拖拽修复）
 - `ScreenScale.kt` (新文件): 新增屏幕自适应工具 ScreenScaleData，根据屏幕宽度/高度动态计算各组件尺寸
   - 按屏幕宽度比例计算拨盘宽（60~120dp）、拨盘高（140~260dp）

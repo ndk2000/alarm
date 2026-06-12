@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.example.R
 import com.example.cloud.QrCodeUtils
 import com.example.db.CheckInGroupEntity
+import com.example.ui.dialogs.digitsToChineseUpper
 import com.example.db.CheckInTaskEntity
 
 private val chineseNumerals = arrayOf(
@@ -396,6 +397,7 @@ private fun CheckInGroupCard(
     offsetMinutes: Int = 10
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
 
     // ── 任务项复制对话框状态 ──
     var showTaskCopyDialog by remember { mutableStateOf(false) }
@@ -510,15 +512,6 @@ private fun CheckInGroupCard(
                 }
                 IconButton(onClick = onCloudShare, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Default.CloudUpload, contentDescription = "云分享", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.tertiary)
-                }
-                IconButton(onClick = {
-                    ruleNamePrefix = group.name
-                    ruleSegments = mutableListOf(
-                        TimeSegmentState("08", "00", "12", "00", offsetHours.toString(), offsetMinutes.toString())
-                    )
-                    showRuleDialog = true
-                }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.DateRange, contentDescription = "规则生成", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.secondary)
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
@@ -853,7 +846,6 @@ private fun CheckInGroupCard(
                             Button(
                                 onClick = {
                                     val prefix = ruleNamePrefix.ifBlank { "打卡" }
-                                    val template = ruleNameTemplate.ifBlank { "{prefix}{time}" }
                                     val generatedTasks = mutableListOf<CheckInTaskEntity>()
                                     ruleSegments.forEach { seg ->
                                         val sH = seg.startHour.toIntOrNull()?.coerceIn(0, 23) ?: return@forEach
@@ -873,22 +865,22 @@ private fun CheckInGroupCard(
                                         while (total <= endTotal) {
                                             val h = total / 60
                                             val m = total % 60
-                                            val timeStr = String.format("%02d:%02d", h, m)
-                                            val name = template
-                                                .replace("{prefix}", prefix)
-                                                .replace("{name}", prefix)
-                                                .replace("{time}", timeStr)
-                                                .replace("{hour}", String.format("%02d", h))
-                                                .replace("{minute}", String.format("%02d", m))
-                                                .replace("{seq}", seq.toString())
+                                            // 和加号功能一致的生成逻辑：数字转中文 + TTS 语音
+                                            val rawText = "${prefix}现在是${h}点${m}分 第${seq}次打卡"
+                                            val ttsText = digitsToChineseUpper(rawText)
+                                            val cachePath = try {
+                                                com.example.alarm.TtsTaskPlayer.generateSync(ctx, ttsText)
+                                            } catch (_: Exception) { null }
                                             generatedTasks.add(
                                                 CheckInTaskEntity(
                                                     id = 0,
                                                     groupId = 0,
-                                                    name = name,
+                                                    name = ttsText,
                                                     hour = h,
                                                     minute = m,
-                                                    orderIndex = 0
+                                                    orderIndex = 0,
+                                                    ringtonePath = cachePath,
+                                                    useTts = true
                                                 )
                                             )
                                             total += interval
