@@ -424,16 +424,62 @@ private fun LocalSyncContent(
     if (showImportModeDialog) {
         AlertDialog(
             onDismissRequest = { showImportModeDialog = false },
-            title = { Text("选择导入模式") },
-            text = { Text("选择从远程同步时如何处理现有数据") },
-            confirmButton = {
-                Button(onClick = {
-                    onSyncFromRemote(pendingImportMode)
-                    showImportModeDialog = false
-                }) {
-                    Text("清空并导入")
+            title = { Text("选择同步方式") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("从远程设备同步数据，请选择处理方式：", fontSize = 13.sp)
+                    Spacer(Modifier.height(4.dp))
+
+                    // 清空并导入
+                    Button(
+                        onClick = {
+                            pendingImportMode = com.example.alarm.WifiSyncClient.ImportMode.CLEAR
+                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.CLEAR)
+                            showImportModeDialog = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("清空并导入", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Text("删除本地所有数据，导入远程完整配置", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    // 合并导入
+                    Button(
+                        onClick = {
+                            pendingImportMode = com.example.alarm.WifiSyncClient.ImportMode.MERGE
+                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.MERGE)
+                            showImportModeDialog = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Merge, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("合并导入", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Text("保留本地数据，添加远程的闹钟和打卡组", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    // 仅同步报时
+                    Button(
+                        onClick = {
+                            pendingImportMode = com.example.alarm.WifiSyncClient.ImportMode.ONLY_CHIMES
+                            onSyncFromRemote(com.example.alarm.WifiSyncClient.ImportMode.ONLY_CHIMES)
+                            showImportModeDialog = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Icon(Icons.Default.AlarmOn, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("仅同步报时", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Text("只同步整点报时语音，不影响闹钟和打卡数据", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
+            confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showImportModeDialog = false }) {
                     Text(stringResource(R.string.cancel))
