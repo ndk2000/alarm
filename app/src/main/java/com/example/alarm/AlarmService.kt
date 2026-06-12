@@ -33,6 +33,8 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         private const val SERVICE_NOTIFICATION_ID = 2002
         const val TIMER_CHANNEL_ID = "countdown_timer_channel"
         const val TIMER_NOTIFICATION_ID = 2003
+        /** 标记使用 TTS 朗读标签代替铃声 */
+        const val TTS_RINGTONE_MARKER = "__TTS__"
     }
 
     private var mediaPlayer: MediaPlayer? = null
@@ -177,15 +179,16 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         val dismissPendingIntent = PendingIntent.getService(this, 1, dismissIntent, pendingFlags)
 
         val notification = NotificationCompat.Builder(this, RINGING_CHANNEL_ID)
-            .setContentTitle("闹铃开响中")
-            .setContentText("点击关闭 · $label")
+            .setContentTitle("🔔 闹钟响起")
+            .setContentText("点击此处关闭 · $label")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(dismissPendingIntent) // 点通知本身也能关
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "关闭闹钟", dismissPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "🔕 关闭闹钟", dismissPendingIntent)
             .setOngoing(true)
+            .setAutoCancel(false)
             .build()
 
         startForegroundCompat(RINGING_NOTIFICATION_ID, notification)
@@ -198,13 +201,20 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
             Log.w(TAG, "直接启动关闭界面失败，fullScreenIntent 兜底: ${e.message}")
         }
 
-        // Start Media Playback
-        playAlarmSound(ringtonePath)
+        // 判断是否 TTS 模式
+        val isTtsMode = ringtonePath == TTS_RINGTONE_MARKER
 
-        // 延迟 1.5 秒后用 TTS 说出闹钟标签，让用户知道这个闹钟是做什么的
-        android.os.Handler(Looper.getMainLooper()).postDelayed({
+        if (!isTtsMode) {
+            // Start Media Playback
+            playAlarmSound(ringtonePath)
+            // 非 TTS 模式：延迟 1.5 秒后用 TTS 说出闹钟标签
+            android.os.Handler(Looper.getMainLooper()).postDelayed({
+                speak(label)
+            }, 1500L)
+        } else {
+            // TTS 模式：立即朗读标签，不播放铃声
             speak(label)
-        }, 1500L)
+        }
 
         // Start Vibration
         if (vibrate) {
