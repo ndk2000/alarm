@@ -583,6 +583,9 @@ private fun LocalSyncContent(
                                         Text(name, fontSize = 13.sp)
                                     }
                                 }
+                            } else if (remoteAlarmGroups.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("打卡组：远程设备暂无打卡数据", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
                             }
                         }
                     }

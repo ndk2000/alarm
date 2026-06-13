@@ -40,11 +40,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.net.Uri
+import android.os.PowerManager
+import android.speech.tts.TextToSpeech
+import android.util.Log
 
 @Composable
 fun CountdownTab(
     alarms: List<Alarm>,
-    groups: List<AlarmGroup>
+    groups: List<AlarmGroup>,
+    warningSeconds: Int = 120,
+    warningSoundType: String = "tick_tock",
+    warningCustomPath: String = "",
+    warningTtsText: String = ""
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -167,25 +178,143 @@ fun CountdownTab(
         mutableIntStateOf(if (idx >= 0) idx else 0)
     }
 
-    // ────────── 不足2分钟全屏（仅今天） ──────────
+    // ────────── 预警全屏（仅今天） ──────────
     val nearestAlarm = if (viewDate == todayDate) {
         countdowns.filter { !it.isPast }.minByOrNull { it.remainingSec }
     } else null
 
-    // 滴答声：当不足2分钟时启动，否则停止
-    LaunchedEffect(nearestAlarm) {
-        if (nearestAlarm != null && nearestAlarm.remainingSec <= 120) {
-            ChimeGenerator.playTickTockContinuous()
-        } else {
-            ChimeGenerator.stopTickTock()
-        }
-    }
-    // 组件卸载时停止滴答声
-    DisposableEffect(Unit) {
-        onDispose { ChimeGenerator.stopTickTock() }
+    // 预警音效：统一控制，选什么放什么
+    val warningSec = maxOf(warningSeconds, 10)
+    val isInWarningZone = nearestAlarm != null && nearestAlarm.remainingSec <= warningSec && nearestAlarm.remainingSec > 0
+    var activeTts by remember { mutableStateOf<TextToSpeech?>(null) }
+    var activeTtsJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // 循环播放的 Job（钟声等需要重复的音效）
+    var repeatJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // 本地滴答声控制
+    var tickTockJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var currentTickTrack by remember { mutableStateOf<android.media.AudioTrack?>(null) }
+
+    // 停止所有音效的辅助函数（必须在 DisposableEffect 之前定义）
+    fun stopAllWarningSounds() {
+        // 强制停掉 ChimeGenerator 的滴答声（用 volatile 标志）
+        ChimeGenerator.stopTickTock()
+        // 立即停掉当前 AudioTrack（先 pause 切断硬件流，再 stop 释放）
+        try { currentTickTrack?.pause() } catch(_: Exception) {}
+        try { currentTickTrack?.stop() } catch(_: Exception) {}
+        try { currentTickTrack?.release() } catch(_: Exception) {}
+        currentTickTrack = null
+        // 停掉本地滴答声协程
+        tickTockJob?.cancel()
+        tickTockJob = null
+        // 停掉循环播放（钟声等）
+        repeatJob?.cancel()
+        repeatJob = null
+        stopCustomSound()
+        activeTts?.stop()
+        activeTts?.shutdown()
+        activeTts = null
+        activeTtsJob?.cancel()
+        activeTtsJob = null
     }
 
-    if (viewDate == todayDate && nearestAlarm != null && nearestAlarm.remainingSec <= 120) {
+    var resumeCount by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        onDispose {
+            stopAllWarningSounds()
+            resumeCount++
+        }
+    }
+
+
+    LaunchedEffect(isInWarningZone, resumeCount, warningSoundType, warningCustomPath, warningTtsText) {
+        if (isInWarningZone) {
+            // 进入预警区 → 先停所有旧音效，再播选中的
+            stopAllWarningSounds()
+            wakeUpScreen(context)
+            when (warningSoundType) {
+                "tick_tock" -> {
+                    // 本地滴答声：完全控制在协程内，随时可停
+                    tickTockJob = scope.launch {
+                        val tickData = com.example.alarm.ChimeGenerator.generateTickOnce(true)
+                        val tockData = com.example.alarm.ChimeGenerator.generateTickOnce(false)
+                        var isTick = true
+                        while (true) {
+                            kotlinx.coroutines.yield() // 让出调度，可被取消
+                            val data = if (isTick) tickData else tockData
+                            isTick = !isTick
+                            val track = android.media.AudioTrack.Builder()
+                                .setAudioAttributes(
+                                    android.media.AudioAttributes.Builder()
+                                        .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                        .build()
+                                )
+                                .setAudioFormat(
+                                    android.media.AudioFormat.Builder()
+                                        .setEncoding(android.media.AudioFormat.ENCODING_PCM_FLOAT)
+                                        .setSampleRate(44100)
+                                        .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                                        .build()
+                                )
+                                .setBufferSizeInBytes(data.size * 4)
+                                .setTransferMode(android.media.AudioTrack.MODE_STATIC)
+                                .build()
+                            try {
+                                track.write(data, 0, data.size, android.media.AudioTrack.WRITE_BLOCKING)
+                                currentTickTrack = track
+                                track.play()
+                                kotlinx.coroutines.delay(1000L)
+                            } finally {
+                                if (currentTickTrack == track) currentTickTrack = null
+                                try { track.pause() } catch(_: Exception) {}
+                                try { track.stop() } catch(_: Exception) {}
+                                try { track.release() } catch(_: Exception) {}
+                            }
+                        }
+                    }
+                }
+                "chime_0", "chime_1", "chime_2", "chime_3" -> {
+                    val pattern = warningSoundType.last().digitToInt()
+                    // 钟声循环播放，每 5 秒播一次
+                    repeatJob = scope.launch {
+                        while (true) {
+                            com.example.alarm.ChimeGenerator.playChimePattern(pattern)
+                            kotlinx.coroutines.delay(5000L)
+                        }
+                    }
+                }
+                "custom" -> {
+                    if (warningCustomPath.isNotBlank()) {
+                        playCustomSound(context, warningCustomPath)
+                    }
+                }
+                "tts" -> {
+                    val text = warningTtsText.ifBlank { "注意，闹钟即将响起" }
+                    // 重复 TTS：每 3 秒朗读一次
+                    val tts = TextToSpeech(context, TextToSpeech.OnInitListener { status ->
+                        if (status == TextToSpeech.SUCCESS) {
+                            activeTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "warning")
+                        }
+                    })
+                    activeTts = tts
+                    // 后台协程循环朗读
+                    activeTtsJob = scope.launch {
+                        while (true) {
+                            kotlinx.coroutines.delay(3000)
+                            if (activeTts?.isSpeaking == true) activeTts?.stop()
+                            activeTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "warning_repeat")
+                        }
+                    }
+                }
+            }
+        } else {
+            // 离开预警区 → 停止所有
+            stopAllWarningSounds()
+        }
+    }
+    // 组件卸载时停止所有（已由 DisposableEffect 处理）
+
+    if (viewDate == todayDate && nearestAlarm != null && nearestAlarm.remainingSec <= warningSec && nearestAlarm.remainingSec > 0) {
         FullScreenUrgentView(nearestAlarm, tick)
         return
     }
@@ -260,7 +389,7 @@ fun CountdownTab(
                 items(activeItems, key = { "cd_${it.alarm.id}" }) { cd ->
                     val isUrgent = cd.remainingSec <= 600
                     val isNearest = isUrgent && cd.alarm.id == nearestAlarm?.alarm?.id
-                    CountdownCard(cd, isUrgent, isNearest)
+                    CountdownCard(cd, isUrgent, isNearest, warningSec)
                 }
             }
 
@@ -354,7 +483,7 @@ private fun PastRecordCard(
 }
 
 @Composable
-private fun CountdownCard(cd: AlarmCountdown, isUrgent: Boolean, isNearestUrgent: Boolean) {
+private fun CountdownCard(cd: AlarmCountdown, isUrgent: Boolean, isNearestUrgent: Boolean, warningSec: Int = 120) {
     val bgColor = when {
         isNearestUrgent -> Color(0xFFFF3333).copy(alpha = 0.15f)
         isUrgent -> Color(0xFFFF8800).copy(alpha = 0.10f)
@@ -393,7 +522,7 @@ private fun CountdownCard(cd: AlarmCountdown, isUrgent: Boolean, isNearestUrgent
             }
             if (isUrgent) {
                 Spacer(Modifier.width(8.dp))
-                Box(Modifier.size(12.dp).background(if (cd.remainingSec <= 120) Color(0xFFFF3333) else Color(0xFFFF8800), shape = CircleShape))
+                Box(Modifier.size(12.dp).background(if (cd.remainingSec <= warningSec) Color(0xFFFF3333) else Color(0xFFFF8800), shape = CircleShape))
             }
         }
     }
@@ -431,3 +560,77 @@ private data class AlarmCountdown(
     val alarm: Alarm, val label: String, val nextTimeMillis: Long,
     val remainingSec: Long, val isPast: Boolean
 )
+
+// ═══ 辅助函数：唤醒屏幕 ═══
+private fun wakeUpScreen(context: Context) {
+    try {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val screenWakeLock = powerManager.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE,
+            "CountdownTab:ScreenWakeLock"
+        )
+        screenWakeLock.acquire(3000L)
+    } catch (e: Exception) {
+        Log.w("CountdownTab", "wakeUpScreen 失败: ${e.message}")
+    }
+}
+
+// ═══ 辅助函数：播放自定义录音 ═══
+private var customMediaPlayer: MediaPlayer? = null
+
+private fun playCustomSound(context: Context, path: String) {
+    try {
+        customMediaPlayer?.stop()
+        customMediaPlayer?.release()
+        customMediaPlayer = null
+        val player = MediaPlayer()
+        customMediaPlayer = player
+        if (path.startsWith("content://") || path.startsWith("android.resource://")) {
+            player.setDataSource(context, Uri.parse(path))
+        } else {
+            val file = java.io.File(path)
+            if (file.exists()) {
+                player.setDataSource(file.absolutePath)
+            } else {
+                Log.w("CountdownTab", "自定义录音文件不存在: $path")
+                return
+            }
+        }
+        player.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+        )
+        player.isLooping = true
+        player.prepare()
+        player.start()
+    } catch (e: Exception) {
+        Log.e("CountdownTab", "播放自定义录音失败", e)
+    }
+}
+
+private fun stopCustomSound() {
+    try {
+        customMediaPlayer?.stop()
+        customMediaPlayer?.release()
+        customMediaPlayer = null
+    } catch (_: Exception) {}
+}
+
+// ═══ 辅助函数：TTS 朗读文字 ═══
+private var ttsInstance: TextToSpeech? = null
+
+private fun speakText(context: Context, text: String) {
+    // 释放旧实例
+    ttsInstance?.stop()
+    ttsInstance?.shutdown()
+    ttsInstance = null
+    ttsInstance = TextToSpeech(context) { status ->
+        if (status == TextToSpeech.SUCCESS) {
+            ttsInstance?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "countdown_warning")
+        }
+    }
+}

@@ -221,7 +221,8 @@ class AlarmGuardService : Service() {
                 }
 
                 if (nearestSec in 0..120) {
-                    ChimeGenerator.playTickTockContinuous()
+                    // 滴答声已由前台 CountdownTab 的预警音系统控制，此处不再播
+                    // ChimeGenerator.playTickTockContinuous()
                 } else {
                     ChimeGenerator.stopTickTock()
                 }

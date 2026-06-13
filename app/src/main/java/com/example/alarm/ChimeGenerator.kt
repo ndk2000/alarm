@@ -214,6 +214,8 @@ object ChimeGenerator {
     private const val TICK_DURATION_MS = 80 // 每个滴答声 80ms
     private var tickTockThread: Thread? = null
     private val tickTockLock = Any()
+    @Volatile
+    private var tickTockStopped = false
 
     /** 生成一个单独的"滴"或"答"声音（机械式短促点击） */
     private fun generateTick(isTick: Boolean): FloatArray {
@@ -242,12 +244,13 @@ object ChimeGenerator {
         synchronized(tickTockLock) {
             // 如果已有线程在播放，不再重复启动
             if (tickTockThread?.isAlive == true) return
+            tickTockStopped = false
             tickTockThread = Thread {
                 try {
                     val tickAudio = generateTick(true)
                     val tockAudio = generateTick(false)
                     var isTickNow = true
-                    while (!Thread.currentThread().isInterrupted) {
+                    while (!tickTockStopped && !Thread.currentThread().isInterrupted) {
                         val audio = if (isTickNow) tickAudio else tockAudio
                         isTickNow = !isTickNow
                         val track = AudioTrack.Builder()
@@ -289,9 +292,18 @@ object ChimeGenerator {
 
     /** 停止老式闹钟滴答声 */
     fun stopTickTock() {
+        tickTockStopped = true
         synchronized(tickTockLock) {
             tickTockThread?.interrupt()
             tickTockThread = null
         }
+    }
+
+    /**
+     * 生成单个滴/答声的 PCM 数据，供外部自行播放
+     * @param isTick true=滴(1500Hz), false=答(1200Hz)
+     */
+    fun generateTickOnce(isTick: Boolean): FloatArray {
+        return generateTick(isTick)
     }
 }

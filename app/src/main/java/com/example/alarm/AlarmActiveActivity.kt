@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
@@ -70,6 +71,7 @@ class AlarmActiveActivity : ComponentActivity() {
         }
 
         val label = intent.getStringExtra("ALARM_LABEL") ?: "早晨时光"
+        val isTimer = intent.getBooleanExtra("IS_TIMER", false)
 
         setContent {
             Theme {
@@ -79,6 +81,7 @@ class AlarmActiveActivity : ComponentActivity() {
                 ) {
                     AlarmRingingScreen(
                         label = label,
+                        isTimer = isTimer,
                         onDismiss = {
                             dismissAlarm()
                         }
@@ -112,10 +115,17 @@ class AlarmActiveActivity : ComponentActivity() {
 @Composable
 fun AlarmRingingScreen(
     label: String,
+    isTimer: Boolean = false,
     onDismiss: () -> Unit
 ) {
     var currentTime by remember { mutableStateOf("") }
     var currentDate by remember { mutableStateOf("") }
+
+    // 计时器用绿色系，闹钟用紫色系
+    val accentColor = if (isTimer) Color(0xFF4CAF50) else Color(0xFFADC6FF)
+    val pulseColor = if (isTimer) Color(0x224CAF50) else Color(0x11ADC6FF)
+    val pulseColor2 = if (isTimer) Color(0x334CAF50) else Color(0x22ADC6FF)
+    val labelColor = if (isTimer) Color(0xFF81C784) else Color(0xFFF095FF)
 
     // Dynamic clock updater
     LaunchedEffect(Unit) {
@@ -141,16 +151,14 @@ fun AlarmRingingScreen(
         label = "pulseScale"
     )
 
+    // 计时器用暗色渐变，闹钟用紫色渐变
+    val bgColors = if (isTimer) listOf(Color(0xFF1A1A1A), Color(0xFF0D2B1A)) else listOf(Color(0xFF0C101B), Color(0xFF1E112A))
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0C101B),
-                        Color(0xFF1E112A)
-                    )
-                )
+                Brush.verticalGradient(colors = bgColors)
             )
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -168,18 +176,18 @@ fun AlarmRingingScreen(
                 modifier = Modifier
                     .size(160.dp)
                     .scale(pulseScale)
-                    .background(Color(0x11ADC6FF), CircleShape)
+                    .background(pulseColor, CircleShape)
             ) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .size(120.dp)
-                        .background(Color(0x22ADC6FF), CircleShape)
+                        .background(pulseColor2, CircleShape)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Alarm,
-                        contentDescription = "Ringing Alarm",
-                        tint = Color(0xFFADC6FF),
+                        imageVector = if (isTimer) Icons.Default.Timer else Icons.Default.Alarm,
+                        contentDescription = if (isTimer) "Timer Finished" else "Ringing Alarm",
+                        tint = accentColor,
                         modifier = Modifier.size(56.dp)
                     )
                 }
@@ -208,7 +216,7 @@ fun AlarmRingingScreen(
                 text = label,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFFF095FF)
+                color = labelColor
             )
         }
 
@@ -228,7 +236,7 @@ fun AlarmRingingScreen(
                     .padding(horizontal = 24.dp),
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFADC6FF),
+                    containerColor = accentColor,
                     contentColor = Color(0xFF0D0D1A)
                 )
             ) {
@@ -238,13 +246,13 @@ fun AlarmRingingScreen(
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("点击关闭闹钟", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(if (isTimer) "关闭计时器" else "关闭闹钟", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "或滑动右侧滑块关闭",
+                text = if (isTimer) "或滑动右侧滑块关闭计时器" else "或滑动右侧滑块关闭",
                 fontSize = 12.sp,
                 color = Color(0xFF909090),
                 fontWeight = FontWeight.Light,

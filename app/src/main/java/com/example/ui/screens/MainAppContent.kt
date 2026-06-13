@@ -40,6 +40,16 @@ import com.example.ui.screens.CountdownTab
 import com.example.cloud.CloudService
 import com.example.ui.dialogs.AddCheckInGroupDialog
 import com.example.ui.dialogs.CheckInTaskInput
+import com.example.alarm.ChimeGenerator
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.AudioTrack
+import android.media.AudioFormat
+import android.os.PowerManager
+import android.speech.tts.TextToSpeech
+import android.util.Log
+import android.content.Context
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +76,7 @@ fun MainAppContent(
     onLoadCustomRingtones: () -> Unit,
     onLoadLocalRecordings: () -> Unit,
     onAddGroup: (String) -> Unit,
-    onAddAlarm: (groupId: Long, hour: Int, minute: Int, days: String, label: String, ringtone: String?, vibrate: Boolean) -> Unit,
+    onAddAlarm: (groupId: Long, hour: Int, minute: Int, days: String, label: String, ringtone: String?, vibrate: Boolean, ringtoneDurationSecs: Int) -> Unit,
     onUpdateAlarm: (Alarm) -> Unit,
     onImportAudio: (android.net.Uri, String) -> String?,
     onExportConfig: () -> Unit,
@@ -137,6 +147,15 @@ fun MainAppContent(
     onShareCheckInGroup: (CheckInGroupEntity) -> Unit = {},
     onImportCheckInGroup: () -> Unit = {},
     onConvertToCheckIn: (AlarmGroup) -> Unit = {},
+    // 预警音配置聚合体
+    warningSoundConfig: com.example.ui.AlarmViewModel.WarningSoundConfig = com.example.ui.AlarmViewModel.WarningSoundConfig(),
+    onSetCountdownWarningSeconds: (Int) -> Unit = {},
+    onSetCountdownWarningSoundType: (String) -> Unit = {},
+    onSetCountdownWarningCustomPath: (String) -> Unit = {},
+    onSetCountdownWarningTtsText: (String) -> Unit = {},
+    onSetTimerFinishSoundType: (String) -> Unit = {},
+    onSetTimerFinishCustomPath: (String) -> Unit = {},
+    onSetTimerFinishTtsText: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     // 当前选中的 tab，0=Alarms, 1=Chimes, 2=WiFi Sync
@@ -197,18 +216,170 @@ fun MainAppContent(
         }
     }
 
+    // ═══ 全局预警音 ═══
+    // 每秒检测最近闹钟，进入预警区时播放选中的音色（不限 Tab）
+    var tick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            tick = System.currentTimeMillis()
+            delay(1000L)
+        }
+    }
+    val enabledGroupIds = remember(groups) { groups.filter { it.isEnabled }.map { it.id }.toSet() }
+    val enabledAlarms = remember(alarms, tick, enabledGroupIds) {
+        alarms.filter { it.isEnabled && it.groupId in enabledGroupIds }
+    }
+    val todayDate = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()) }
+    val nearestSec = remember(enabledAlarms, tick) {
+        val now = System.currentTimeMillis()
+        val cal = java.util.Calendar.getInstance()
+        val todayWeekDay = when (cal.get(java.util.Calendar.DAY_OF_WEEK)) {
+            java.util.Calendar.MONDAY -> 1; java.util.Calendar.TUESDAY -> 2; java.util.Calendar.WEDNESDAY -> 3
+            java.util.Calendar.THURSDAY -> 4; java.util.Calendar.FRIDAY -> 5; java.util.Calendar.SATURDAY -> 6
+            java.util.Calendar.SUNDAY -> 7; else -> 7
+        }
+        enabledAlarms.mapNotNull { alarm ->
+            val days = alarm.daysOfWeek.split(",").filter { it.isNotEmpty() }.map { it.toInt() }
+            if (days.isNotEmpty() && todayWeekDay !in days) return@mapNotNull null
+            val targetCal = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, alarm.hour)
+                set(java.util.Calendar.MINUTE, alarm.minute)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            (targetCal.timeInMillis - now) / 1000
+        }.filter { it > 0 }.minOrNull() ?: Long.MAX_VALUE
+    }
+    val warningSec = maxOf(warningSoundConfig.countdownWarningSeconds, 10)
+    val isInWarningZone = nearestSec <= warningSec && nearestSec > 0
+    var wasInWarning by remember { mutableStateOf(false) }
+    var warningActiveTts by remember { mutableStateOf<TextToSpeech?>(null) }
+    var warningActiveTtsJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var warningTickJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var warningTickTrack by remember { mutableStateOf<AudioTrack?>(null) }
+    var warningRepeatJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    fun stopGlobalWarning() {
+        ChimeGenerator.stopTickTock()
+        try { warningTickTrack?.pause() } catch(_: Exception) {}
+        try { warningTickTrack?.stop() } catch(_: Exception) {}
+        try { warningTickTrack?.release() } catch(_: Exception) {}
+        warningTickTrack = null
+        warningTickJob?.cancel()
+        warningTickJob = null
+        warningRepeatJob?.cancel()
+        warningRepeatJob = null
+        try { warningActiveTts?.stop() } catch(_: Exception) {}
+        try { warningActiveTts?.shutdown() } catch(_: Exception) {}
+        warningActiveTts = null
+        warningActiveTtsJob?.cancel()
+        warningActiveTtsJob = null
+    }
+
+    LaunchedEffect(isInWarningZone, warningSoundConfig.countdownWarningSoundType, warningSoundConfig.countdownWarningCustomPath, warningSoundConfig.countdownWarningTtsText) {
+        if (isInWarningZone) {
+            stopGlobalWarning()
+            // 唤醒屏幕
+            try {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "MainApp:Warning")
+                wl.acquire(3000L)
+            } catch(_: Exception) {}
+            when (warningSoundConfig.countdownWarningSoundType) {
+                "tick_tock" -> {
+                    warningTickJob = scope.launch {
+                        val tickData = ChimeGenerator.generateTickOnce(true)
+                        val tockData = ChimeGenerator.generateTickOnce(false)
+                        var isTick = true
+                        while (true) {
+                            kotlinx.coroutines.yield()
+                            val data = if (isTick) tickData else tockData; isTick = !isTick
+                            val track = AudioTrack.Builder()
+                                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_FLOAT).setSampleRate(44100).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                                .setBufferSizeInBytes(data.size * 4).setTransferMode(AudioTrack.MODE_STATIC).build()
+                            try {
+                                track.write(data, 0, data.size, AudioTrack.WRITE_BLOCKING)
+                                warningTickTrack = track; track.play(); delay(1000L)
+                            } finally {
+                                if (warningTickTrack == track) warningTickTrack = null
+                                try { track.pause() } catch(_: Exception) {}
+                                try { track.stop() } catch(_: Exception) {}
+                                try { track.release() } catch(_: Exception) {}
+                            }
+                        }
+                    }
+                }
+                "chime_0", "chime_1", "chime_2", "chime_3" -> {
+                    val pattern = warningSoundConfig.countdownWarningSoundType.last().digitToInt()
+                    // 先播一次，等当前播完再等 3 秒再播下一次，避免重叠
+                    warningRepeatJob = scope.launch {
+                        while (true) {
+                            // playChimePattern 内部会等播完才返回
+                            ChimeGenerator.playChimePattern(pattern)
+                            // 等前一次播完再隔 3 秒
+                            delay(3000L)
+                        }
+                    }
+                }
+                "custom" -> {
+                    if (warningSoundConfig.countdownWarningCustomPath.isNotBlank()) {
+                        try {
+                            val player = MediaPlayer().apply {
+                                setDataSource(warningSoundConfig.countdownWarningCustomPath)
+                                setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                                isLooping = true; prepare(); start()
+                            }
+                        } catch (e: Exception) { Log.e("MainApp", "自定义预警音播放失败", e) }
+                    }
+                }
+                "tts" -> {
+                    val text = warningSoundConfig.countdownWarningTtsText.ifBlank { "注意，闹钟即将响起" }
+                    var ttsRef: TextToSpeech? = null
+                    val tts = TextToSpeech(context, TextToSpeech.OnInitListener { status ->
+                        if (status == TextToSpeech.SUCCESS) {
+                            ttsRef?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "warning")
+                        }
+                    })
+                    ttsRef = tts
+                    warningActiveTts = tts
+                    warningActiveTtsJob = scope.launch {
+                        while (true) {
+                            delay(3000L)
+                            // 检查是否还在朗读，等它读完
+                            if (warningActiveTts?.isSpeaking == true) {
+                                delay(1000L)
+                            }
+                            warningActiveTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "warning_rep")
+                        }
+                    }
+                }
+            }
+        } else if (wasInWarning) {
+            stopGlobalWarning()
+        }
+        wasInWarning = isInWarningZone
+    }
+    // 组件卸载时停止
+    DisposableEffect(Unit) { onDispose { stopGlobalWarning() } }
+
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
                             text = dateWeekStr,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFEF5350),
-                            fontSize = 22.sp
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
-                        Spacer(modifier = Modifier.weight(1f))
                         
                         // 黑底黄字数字时钟
                         Surface(
@@ -218,11 +389,12 @@ fun MainAppContent(
                         ) {
                             Text(
                                 text = wallClockTime,
-                                fontSize = 18.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFFFD700),
                                 fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1
                             )
                         }
                     }
@@ -241,7 +413,7 @@ fun MainAppContent(
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 )
             )
@@ -336,7 +508,11 @@ fun MainAppContent(
                 )
                 1 -> CountdownTab(
                     alarms = alarms,
-                    groups = groups
+                    groups = groups,
+                    warningSeconds = warningSoundConfig.countdownWarningSeconds,
+                    warningSoundType = warningSoundConfig.countdownWarningSoundType,
+                    warningCustomPath = warningSoundConfig.countdownWarningCustomPath,
+                    warningTtsText = warningSoundConfig.countdownWarningTtsText
                 )
                 2 -> ChimesTab(
                         chimes = chimes,
@@ -370,7 +546,10 @@ fun MainAppContent(
                     seconds = timerSeconds,
                     onSetHours = onSetTimerHours,
                     onSetMinutes = onSetTimerMinutes,
-                    onSetSeconds = onSetTimerSeconds
+                    onSetSeconds = onSetTimerSeconds,
+                    warningSoundType = warningSoundConfig.timerFinishSoundType,
+                    warningCustomPath = warningSoundConfig.timerFinishCustomPath,
+                    warningTtsText = warningSoundConfig.timerFinishTtsText
                 )
                 4 -> WifiSyncTab(
                     isOn = isWifiServerOn,
@@ -521,8 +700,8 @@ fun MainAppContent(
             onStopRecording = onStopRecording,
             onCancelRecording = onCancelRecording,
             onDismiss = { showAddAlarmDialog = false },
-            onConfirm = { hour, minute, days, label, ringtone, vibrate ->
-                onAddAlarm(selectedAlarmGroupId, hour, minute, days, label, ringtone, vibrate)
+            onConfirm = { hour, minute, days, label, ringtone, vibrate, durationSecs ->
+                onAddAlarm(selectedAlarmGroupId, hour, minute, days, label, ringtone, vibrate, durationSecs)
                 showAddAlarmDialog = false
             },
             onImportAudio = onImportAudio
@@ -543,14 +722,15 @@ fun MainAppContent(
             onStopRecording = onStopRecording,
             onCancelRecording = onCancelRecording,
             onDismiss = { editingAlarm = null },
-            onConfirm = { hour, minute, days, label, ringtone, vibrate ->
+            onConfirm = { hour, minute, days, label, ringtone, vibrate, durationSecs ->
                 val updated = editingAlarm!!.copy(
                     hour = hour,
                     minute = minute,
                     daysOfWeek = days,
                     label = label,
                     ringtonePath = ringtone,
-                    vibrate = vibrate
+                    vibrate = vibrate,
+                    ringtoneDurationSecs = durationSecs
                 )
                 onUpdateAlarm(updated)
                 editingAlarm = null
@@ -658,7 +838,22 @@ fun MainAppContent(
                         ).show()
                     }
                 }
-            }
+            },
+            // 预警音配置
+            countdownWarningSeconds = warningSoundConfig.countdownWarningSeconds,
+            currentSoundType = warningSoundConfig.countdownWarningSoundType,
+            currentCustomPath = warningSoundConfig.countdownWarningCustomPath,
+            currentTtsText = warningSoundConfig.countdownWarningTtsText,
+            onSetCountdownWarningSeconds = onSetCountdownWarningSeconds,
+            onSetCountdownWarningSoundType = onSetCountdownWarningSoundType,
+            onSetCustomPath = onSetCountdownWarningCustomPath,
+            onSetTtsText = onSetCountdownWarningTtsText,
+            timerFinishSoundType = warningSoundConfig.timerFinishSoundType,
+            timerFinishCustomPath = warningSoundConfig.timerFinishCustomPath,
+            timerFinishTtsText = warningSoundConfig.timerFinishTtsText,
+            onSetTimerFinishSoundType = onSetTimerFinishSoundType,
+            onSetTimerFinishCustomPath = onSetTimerFinishCustomPath,
+            onSetTimerFinishTtsText = onSetTimerFinishTtsText
         )
     }
 

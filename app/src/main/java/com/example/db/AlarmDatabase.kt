@@ -16,7 +16,7 @@ import java.io.File
 
 @Database(
     entities = [AlarmGroup::class, Alarm::class, HourlyChime::class, CheckInGroupEntity::class, CheckInTaskEntity::class, CloudShareRecord::class, AlarmRecord::class],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 abstract class AlarmDatabase : RoomDatabase() {
@@ -160,6 +160,13 @@ abstract class AlarmDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 9 to 10: add ringtoneDurationSecs column to alarms
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `alarms` ADD COLUMN `ringtoneDurationSecs` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): AlarmDatabase {
             Log.d("AlarmDB", "[1] getDatabase called")
             return INSTANCE ?: synchronized(this) {
@@ -187,7 +194,7 @@ abstract class AlarmDatabase : RoomDatabase() {
                         dbFile.absolutePath
                     )
                     .addCallback(AlarmDatabaseCallback(scope))
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+.addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigration()
                     .build()
                     Log.d("AlarmDB", "[7] Room.build done")
@@ -209,7 +216,7 @@ abstract class AlarmDatabase : RoomDatabase() {
                 DB_NAME
             )
             .addCallback(AlarmDatabaseCallback(scope))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
             .fallbackToDestructiveMigration()
             .build()
         }

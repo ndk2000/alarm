@@ -46,7 +46,7 @@ fun AddAlarmDialog(
     onStopRecording: (String) -> String?,
     onCancelRecording: () -> Unit,
     onDismiss: () -> Unit,
-    onConfirm: (hour: Int, minute: Int, days: String, label: String, ringtonePath: String?, vibrate: Boolean) -> Unit,
+    onConfirm: (hour: Int, minute: Int, days: String, label: String, ringtonePath: String?, vibrate: Boolean, ringtoneDurationSecs: Int) -> Unit,
     onImportAudio: (Uri, String) -> String?
 ) {
     val context = LocalContext.current
@@ -57,6 +57,14 @@ fun AddAlarmDialog(
     var selectedRingtonePath by remember { mutableStateOf<String?>(editingAlarm?.ringtonePath) }
     var vibrate by remember { mutableStateOf(editingAlarm?.vibrate ?: true) }
     var showRingtoneSelection by remember { mutableStateOf(false) }
+
+    // 铃声时长：0=持续响铃, >0=秒数
+    // 内部用 durationMode 和 durationValue 来构建 UI 选择
+    val initialDurationSecs = editingAlarm?.ringtoneDurationSecs ?: 0
+    var ringtoneDurationSecs by remember { mutableStateOf(initialDurationSecs) }
+    var durationMode by remember { mutableStateOf(if (initialDurationSecs == 0) 0 else 1) } // 0=持续, 1=按次数, 2=按时间
+    var showCustomDurationDialog by remember { mutableStateOf(false) }
+    var customDurationInput by remember { mutableStateOf("") }
 
     // Represent weekdays. Mon=1 to Sun=7.
     val initialDays = if (editingAlarm != null) {
@@ -364,13 +372,112 @@ fun AddAlarmDialog(
                         )
                     }
                 }
+                item {
+                    // 铃声时长设置
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("铃声时长", fontSize = 12.sp, color = Color(0xFF8E9099))
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // 模式选择: 持续 / 按次数 / 按时间
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("持续响铃" to 0, "按次数" to 1, "按时间" to 2).forEach { (label, mode) ->
+                                val isSelected = durationMode == mode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) Color(0xFF0D3269) else Color(0xFF2D2F35))
+                                        .clickable {
+                                            durationMode = mode
+                                            ringtoneDurationSecs = when (mode) {
+                                                0 -> 0 // 持续
+                                                1 -> 5 // 默认1次=5秒
+                                                2 -> 60 // 默认1分钟=60秒
+                                                else -> 0
+                                            }
+                                        }
+                                        .padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(label, fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) Color(0xFFADC6FF) else Color(0xFFCCCED6))
+                                }
+                            }
+                        }
+
+                        if (durationMode == 1) {
+                            // 按次数
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("1次" to 5, "10次" to 50, "自定义" to -1).forEach { (label, secs) ->
+                                    val isSelected = if (secs > 0) ringtoneDurationSecs == secs else (ringtoneDurationSecs > 0 && ringtoneDurationSecs % 5 == 0 && ringtoneDurationSecs != 5 && ringtoneDurationSecs != 50)
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) Color(0xFF1A3A5C) else Color(0xFF25272C))
+                                            .clickable {
+                                                if (secs > 0) {
+                                                    ringtoneDurationSecs = secs
+                                                } else {
+                                                    customDurationInput = ""
+                                                    showCustomDurationDialog = true
+                                                }
+                                            }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) Color(0xFFADC6FF) else Color(0xFFCCCED6))
+                                    }
+                                }
+                            }
+                            Text("${ringtoneDurationSecs / 5}次 × 约5秒/次 = ${ringtoneDurationSecs}秒",
+                                fontSize = 10.sp, color = Color(0xFF707070), modifier = Modifier.padding(top = 4.dp))
+                        }
+
+                        if (durationMode == 2) {
+                            // 按时间
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("1分钟" to 60, "10分钟" to 600, "自定义" to -1).forEach { (label, secs) ->
+                                    val isSelected = if (secs > 0) ringtoneDurationSecs == secs else (ringtoneDurationSecs > 0 && ringtoneDurationSecs % 60 == 0 && ringtoneDurationSecs != 60 && ringtoneDurationSecs != 600)
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) Color(0xFF1A3A5C) else Color(0xFF25272C))
+                                            .clickable {
+                                                if (secs > 0) {
+                                                    ringtoneDurationSecs = secs
+                                                } else {
+                                                    customDurationInput = ""
+                                                    showCustomDurationDialog = true
+                                                }
+                                            }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) Color(0xFFADC6FF) else Color(0xFFCCCED6))
+                                    }
+                                }
+                            }
+                            Text("${ringtoneDurationSecs / 60}分钟 = ${ringtoneDurationSecs}秒",
+                                fontSize = 10.sp, color = Color(0xFF707070), modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     val daysCodeStr = selectedDays.sorted().joinToString(",")
-                    onConfirm(hour, minute, daysCodeStr, label, selectedRingtonePath, vibrate)
+                    onConfirm(hour, minute, daysCodeStr, label, selectedRingtonePath, vibrate, ringtoneDurationSecs)
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF0D3269),
@@ -387,4 +494,42 @@ fun AddAlarmDialog(
         },
         containerColor = MaterialTheme.colorScheme.surface
     )
+
+    // 自定义时长输入弹窗
+    if (showCustomDurationDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomDurationDialog = false },
+            title = { Text("自定义铃声时长", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(if (durationMode == 1) "请输入响铃次数（每次约5秒）" else "请输入响铃分钟数",
+                        fontSize = 13.sp, color = Color(0xFF8E9099))
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = customDurationInput,
+                        onValueChange = { customDurationInput = it.filter { c -> c.isDigit() } },
+                        label = { Text(if (durationMode == 1) "次数" else "分钟数") },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val value = customDurationInput.toIntOrNull() ?: 0
+                        if (value > 0) {
+                            ringtoneDurationSecs = if (durationMode == 1) value * 5 else value * 60
+                        }
+                        showCustomDurationDialog = false
+                    }
+                ) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomDurationDialog = false }) {
+                    Text("取消", color = Color(0xFF8E9099))
+                }
+            }
+        )
+    }
 }

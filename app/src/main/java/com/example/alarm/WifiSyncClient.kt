@@ -146,7 +146,9 @@ class WifiSyncClient(private val context: Context) {
                         entry = zip.nextEntry
                     }
                     zip.close()
-                } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    Log.e(TAG, "解析远程备份失败: ${e.message}")
+                }
                 if (tempZip.exists()) tempZip.delete()
                 if (alarmGroups.isEmpty() && checkinGroups.isEmpty()) null
                 else Pair(alarmGroups, checkinGroups)
@@ -423,12 +425,28 @@ class WifiSyncClient(private val context: Context) {
                         }
                     }
 
-                    // 导入打卡事项
+                    // 导入打卡事项（选择性模式：用组名匹配）
                     if (root.has("checkinTasks")) {
                         val checkinTasksObj = root.getJSONObject("checkinTasks")
+                        // 先建立 oldGroupId → groupName 映射
+                        val oldIdToName = mutableMapOf<Long, String>()
+                        if (root.has("checkinGroups")) {
+                            val cgArr = root.getJSONArray("checkinGroups")
+                            for (i in 0 until cgArr.length()) {
+                                val g = cgArr.getJSONObject(i)
+                                oldIdToName[g.getLong("id")] = g.getString("name")
+                            }
+                        }
                         for (oldGroupIdStr in checkinTasksObj.keys()) {
                             val oldGroupId = oldGroupIdStr.toLongOrNull() ?: continue
-                            val newGroupId = checkinGroupIdMap[oldGroupId] ?: continue
+                            val groupName = oldIdToName[oldGroupId] ?: continue
+                            // 选择性模式：跳过不在选中列表的组
+                            if (isSelective && groupName !in selectedGroupNames!!) continue
+                            val newGroupId = checkinGroupIdMap[oldGroupId]
+                            if (newGroupId == null) {
+                                Log.w(TAG, "跳过打卡任务：组 '$groupName' (oldId=$oldGroupId) 未导入")
+                                continue
+                            }
                             val tasksArr = checkinTasksObj.getJSONArray(oldGroupIdStr)
                             for (j in 0 until tasksArr.length()) {
                                 val t = tasksArr.getJSONObject(j)

@@ -28,6 +28,7 @@ class AlarmReceiver : BroadcastReceiver() {
             val label = intent.getStringExtra("ALARM_LABEL") ?: "闹钟"
             val ringtone = intent.getStringExtra("ALARM_RINGTONE")
             val vibrate = intent.getBooleanExtra("ALARM_VIBRATE", true)
+            val ringtoneDurationSecs = intent.getIntExtra("ALARM_DURATION_SECS", 0)
 
             if (alarmId != -1L) {
                 // Launch the persistent alarm overlay/service to ring
@@ -37,6 +38,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     putExtra("ALARM_LABEL", label)
                     putExtra("ALARM_RINGTONE", ringtone)
                     putExtra("ALARM_VIBRATE", vibrate)
+                    putExtra("ALARM_DURATION_SECS", ringtoneDurationSecs)
                 }
                 
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {

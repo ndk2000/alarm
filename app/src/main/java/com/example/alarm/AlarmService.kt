@@ -91,7 +91,8 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
                 val label = intent.getStringExtra("ALARM_LABEL") ?: "闹钟"
                 val ringtone = intent.getStringExtra("ALARM_RINGTONE")
                 val vibrate = intent.getBooleanExtra("ALARM_VIBRATE", true)
-                startRingingForeground(alarmId, label, ringtone, vibrate)
+                val ringtoneDurationSecs = intent.getIntExtra("ALARM_DURATION_SECS", 0)
+                startRingingForeground(alarmId, label, ringtone, vibrate, ringtoneDurationSecs)
             }
             "STOP_RINGING" -> {
                 val alarmId = intent.getLongExtra("ALARM_ID", -1L)
@@ -145,8 +146,36 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
     }
 
     // Starts foreground notification for active alarm ringing
-    private fun startRingingForeground(alarmId: Long, label: String, ringtonePath: String?, vibrate: Boolean) {
-        // 核心加固：闹钟响起时立即申请唤醒锁，防止系统在锁屏下瞬间切断 CPU 导致不响
+    private fun startRingingForeground(alarmId: Long, label: String, ringtonePath: String?, vibrate: Boolean, ringtoneDurationSecs: Int = 0) {
+        // ★ 第 0 步：唤醒屏幕（非阻塞 <1ms），与响铃并行执行
+        wakeUpScreen()
+
+        // ★ 第 1 步：立即响铃，一秒都不耽误
+        val isTtsMode = ringtonePath == TTS_RINGTONE_MARKER
+        if (!isTtsMode) {
+            playAlarmSound(ringtonePath) // 立即播放铃声
+            // 非 TTS 模式：延迟 1.5 秒后用 TTS 说出闹钟标签
+            android.os.Handler(Looper.getMainLooper()).postDelayed({
+                speak(label)
+            }, 1500L)
+        } else {
+            speak(label) // TTS 模式：立即朗读标签
+        }
+
+        // 如果设置了响铃时长，则在指定时间后自动关闭
+        if (ringtoneDurationSecs > 0) {
+            android.os.Handler(Looper.getMainLooper()).postDelayed({
+                stopRinging(alarmId)
+            }, (ringtoneDurationSecs * 1000L).toLong())
+        }
+
+        // ★ 第 2 步：振动（与响铃同时）
+        if (vibrate) {
+            vibrateDevice()
+        }
+
+        // ★ 第 3 步：后台保活 + 通知 + Activity（与响铃并行）
+        // 核心加固：申请唤醒锁，防止系统在锁屏下瞬间切断 CPU 导致不响
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AlarmClock:RingingWakeLock")
@@ -200,25 +229,22 @@ class AlarmService : Service(), TextToSpeech.OnInitListener {
         } catch (e: Exception) {
             Log.w(TAG, "直接启动关闭界面失败，fullScreenIntent 兜底: ${e.message}")
         }
+    }
 
-        // 判断是否 TTS 模式
-        val isTtsMode = ringtonePath == TTS_RINGTONE_MARKER
-
-        if (!isTtsMode) {
-            // Start Media Playback
-            playAlarmSound(ringtonePath)
-            // 非 TTS 模式：延迟 1.5 秒后用 TTS 说出闹钟标签
-            android.os.Handler(Looper.getMainLooper()).postDelayed({
-                speak(label)
-            }, 1500L)
-        } else {
-            // TTS 模式：立即朗读标签，不播放铃声
-            speak(label)
-        }
-
-        // Start Vibration
-        if (vibrate) {
-            vibrateDevice()
+    /** 唤醒屏幕 — 在响铃之前调用，确保用户先看到亮屏 */
+    private fun wakeUpScreen() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val screenWakeLock = powerManager.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                        PowerManager.ON_AFTER_RELEASE,
+                "AlarmClock:ScreenWakeLock"
+            )
+            // 持有 3 秒，等 AlarmActiveActivity 的 setTurnScreenOn(true) 接管屏幕
+            screenWakeLock.acquire(3000L)
+        } catch (e: Exception) {
+            Log.w(TAG, "wakeUpScreen 失败: ${e.message}")
         }
     }
 

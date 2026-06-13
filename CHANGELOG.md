@@ -4,7 +4,56 @@
 
 ## Agent工作记录
 
-### 2026-06-11（修复 4 个严重回归 Bug）
+### 2026-06-13（铃声时长设置 + 唤醒屏幕优化）
+- `AlarmEntity.kt` L37: `Alarm` 数据类新增字段 `ringtoneDurationSecs: Int = 0`（0=持续响铃直到手动关闭）
+  - 编码方式：秒数存储，UI 层将"按次数"(N*5s)和"按时间"(N*60s)统一转换为秒
+- `AlarmDatabase.kt` L19, L163-L168, L197, L219: 数据库版本 9→10，新增 `MIGRATION_9_10`
+  - 迁移内容：`ALTER TABLE alarms ADD COLUMN ringtoneDurationSecs INTEGER NOT NULL DEFAULT 0`
+- `AlarmScheduler.kt` L108: `scheduleAlarm()` 向 intent 传递 `ALARM_DURATION_SECS`
+- `AlarmReceiver.kt` L31, L41: 从 intent 读取 `ALARM_DURATION_SECS` 并转发给 AlarmService
+- `AlarmService.kt` L94, L149, L165-L170: `startRingingForeground()` 新增 `ringtoneDurationSecs` 参数
+  - 功能：响铃后若 >0，用 `Handler.postDelayed` 在指定秒数后自动 `stopRinging(alarmId)`
+- `AddAlarmDialog.kt` L49, L61-L67, L375-L471: 新增"铃声时长"UI 选择区
+  - 三种模式：持续响铃 / 按次数 / 按时间
+  - 按次数预设：1次(5s)、10次(50s)、自定义（弹出数字输入框）
+  - 按时间预设：1分钟(60s)、10分钟(600s)、自定义（弹出数字输入框）
+  - 底部实时显示换算结果（如"5次 × 约5秒/次 = 25秒"）
+- `AlarmViewModel.kt` L1151-L1184: `addAlarm()` 新增 `ringtoneDurationSecs` 参数
+- `MainAppContent.kt` L69, L524-L527, L546-L556: `onAddAlarm` 回调签名新增 `ringtoneDurationSecs`
+- `MainActivity.kt` L494-L496, L633-L634, L656: 传递新参数，预览代码同步更新
+- `AlarmService.kt` L149-L151, L228-L243: 修复铃声唤醒逻辑——先唤醒屏幕再响铃
+  - 问题：`startRingingForeground` 先播放铃声，`AlarmActiveActivity.onCreate()` 异步亮屏，导致黑屏响铃
+  - 改前：`PARTIAL_WAKE_LOCK` 仅保 CPU，不亮屏；`startActivity(fullscreenIntent)` 异步等 activity 亮屏
+  - 改后：新增 `wakeUpScreen()`，用 `SCREEN_BRIGHT_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP` 在播放铃声前同步亮屏
+  - `playAlarmSound()` 移至方法最前面，与亮屏并行执行，保证铃声零延迟
+
+### 2026-07-XX（倒计时预警配置：多音色 + 时长可选 + 唤醒屏幕 + TTS + 自定义录音）
+- `AlarmViewModel.kt` L86-L100: 新增倒计时预警设置状态（预警秒数、音色类型、自定义路径、TTS 文字）
+- `AlarmViewModel.kt` L357-L377: 新增 4 个 setter 方法，持久化到 SharedPreferences
+- `AlarmViewModel.kt` L655-L659: init 中恢复倒计时预警设置
+- `AppSettingsDialog.kt` L98-L106: 新增 8 个参数（4 个状态值 + 4 个 setter）
+- `AppSettingsDialog.kt` L385-L476: 新增"倒计时预警"设置卡片 UI
+  - 功能：6 档预警时长可选（30秒~10分钟）
+  - 功能：7 种预警音色可选（滴答声/4种旋律钟声/自定义录音/TTS朗读文字）
+  - 功能：选择自定义录音时显示路径输入框
+  - 功能：选择 TTS 时显示文字输入框
+- `MainAppContent.kt` L140-L148: 新增倒计时预警参数
+- `MainAppContent.kt` L346-L353: CountdownTab 调用传入预警设置
+- `MainAppContent.kt` L618-L627: AppSettingsDialog 调用传入预警设置
+- `MainActivity.kt` L583-L591: 从 ViewModel 收集倒计时预警状态并传递给 MainAppContent
+- `CountdownTab.kt` L51-L58: 新增 4 个预警参数
+- `CountdownTab.kt` L186-L214: 预警音效逻辑全面改造
+  - 改前：仅支持滴答声，硬编码 120 秒
+  - 改后：根据 soundType 播放不同音色（tick_tock/chime_0~3/custom/tts）
+  - 新增：预警触发时唤醒屏幕（`wakeUpScreen`）
+  - 改前：全屏预警硬编码 120 秒
+  - 改后：全屏预警使用 `warningSeconds` 可配置值
+- `CountdownTab.kt` L296-L298: CountdownCard 红点阈值改为使用 `warningSec`
+- `CountdownTab.kt` L471-L542: 新增辅助函数
+  - `wakeUpScreen()`: 唤醒屏幕（PowerManager）
+  - `playCustomSound()`: 播放自定义录音文件
+  - `stopCustomSound()`: 停止自定义录音
+  - `speakText()`: TTS 朗读指定文字
 - `AlarmsTab.kt` L40-L52: 恢复闹钟转打卡组功能
   - 问题：`onConvertToCheckIn` 参数在整个代码库中消失，组卡片上没有 ✅ 转换按钮
   - 改前：AlarmsTab 没有转换参数，组卡片无转换入口

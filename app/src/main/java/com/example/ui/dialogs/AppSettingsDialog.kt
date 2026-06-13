@@ -8,9 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,8 +35,16 @@ import android.os.Environment
 import android.provider.Settings
 import android.speech.tts.TextToSpeech.EngineInfo
 import android.speech.tts.Voice
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.widget.Toast
+import android.media.MediaRecorder
+import kotlinx.coroutines.launch
+import java.io.File
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -47,18 +53,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
 private data class SettingsTab(
-    val icon: String,
     val label: String,
     val labelRes: Int? = null
 )
 
 private val tabs = listOf(
-    SettingsTab("🌐", "通用"),
-    SettingsTab("⏱", "偏移"),
-    SettingsTab("🎤", "语音"),
-    SettingsTab("🔋", "电池"),
-    SettingsTab("📋", "关于", R.string.about_section),
-    SettingsTab("🔐", "权限")
+    SettingsTab("通用"),
+    SettingsTab("偏移"),
+    SettingsTab("预警音"),
+    SettingsTab("语音"),
+    SettingsTab("电池"),
+    SettingsTab("关于", R.string.about_section),
+    SettingsTab("权限")
 )
 
 @Composable
@@ -94,114 +100,60 @@ fun AppSettingsDialog(
     onScanTtsEngines: () -> Unit = {},
     debugLogs: List<String> = emptyList(),
     onCleanupUnusedCache: () -> Unit = {},
-    onRebuildMissingCache: () -> Unit = {}
+    onRebuildMissingCache: () -> Unit = {},
+    // 倒计时预警设置
+    countdownWarningSeconds: Int = 120,
+    currentSoundType: String = "tick_tock",
+    currentCustomPath: String = "",
+    currentTtsText: String = "",
+    onSetCountdownWarningSeconds: (Int) -> Unit = {},
+    onSetCountdownWarningSoundType: (String) -> Unit = {},
+    onSetCustomPath: (String) -> Unit = {},
+    onSetTtsText: (String) -> Unit = {},
+    // 计时器响铃设置（独立选择，与倒计时同一张卡片）
+    timerFinishSoundType: String = "tick_tock",
+    timerFinishCustomPath: String = "",
+    timerFinishTtsText: String = "",
+    onSetTimerFinishSoundType: (String) -> Unit = {},
+    onSetTimerFinishCustomPath: (String) -> Unit = {},
+    onSetTimerFinishTtsText: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var tempPath by remember { mutableStateOf(recordingPath) }
     var tempDbPath by remember { mutableStateOf(dbDirectoryPath) }
     var selectedTab by remember { mutableIntStateOf(0) }
-    var sidebarVisible by remember { mutableStateOf(true) }
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true, decorFitsSystemWindows = false)
     ) {
         Surface(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
             shape = RoundedCornerShape(0.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                // ════ 左侧菜单 ════
-                Column(
-                    modifier = Modifier
-                        .width(if (sidebarVisible) 130.dp else 44.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding()
+            ) {
+                // ════ 顶部标题栏 + Tabs ════
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shadowElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.surface
                 ) {
-                    // 折叠/展开按钮
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        IconButton(onClick = { sidebarVisible = !sidebarVisible }, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                if (sidebarVisible) Icons.AutoMirrored.Filled.ArrowBack else Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = if (sidebarVisible) "收起菜单" else "展开菜单",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                    // 标签列表
-                    tabs.forEachIndexed { i, tab ->
-                        val selected = selectedTab == i
+                    Column {
+                        // 标题 + 关闭按钮
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .then(
-                                    if (selected) Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
-                                    else Modifier
-                                )
-                                .clickable { selectedTab = i }
-                                .padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(tab.icon, fontSize = 16.sp)
-                            if (sidebarVisible) {
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    tab.label,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.weight(1f))
-
-                    // 底部关闭按钮
-                    if (sidebarVisible) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { onDismiss() }.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "关闭", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.width(8.dp))
-                            Text("关闭", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                // 分割线
-                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                // ════ 右侧内容 ════
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                ) {
-                    // 顶部标题栏
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shadowElevation = 2.dp,
-                        color = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "${tabs[selectedTab].icon}  ${tabs[selectedTab].label}",
-                                fontSize = 18.sp,
+                                "设置",
+                                fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -210,18 +162,38 @@ fun AppSettingsDialog(
                                 Text("完成", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
                             }
                         }
+                        // Tab 行（可横向滚动，适配窄屏）
+                        ScrollableTabRow(
+                            selectedTabIndex = selectedTab,
+                            edgePadding = 8.dp,
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            divider = {}
+                        ) {
+                            tabs.forEachIndexed { i, tab ->
+                                Tab(
+                                    selected = selectedTab == i,
+                                    onClick = { selectedTab = i },
+                                    text = {
+                                        Text(tab.label, fontSize = 12.sp, fontWeight = if (selectedTab == i) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                )
+                            }
+                        }
                     }
+                }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
-                    // 内容区（可滚动）
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(20.dp)
-                    ) {
-                        when (selectedTab) {
+                // ════ 内容区（占满剩余空间 + 可滚动）════
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp)
+                ) {
+                    when (selectedTab) {
                             0 -> GeneralSettingsContent(
                                 lang = lang,
                                 theme = theme,
@@ -243,7 +215,23 @@ fun AppSettingsDialog(
                                 onSetOffsetHours = onSetOffsetHours,
                                 onSetOffsetMinutes = onSetOffsetMinutes
                             )
-                            2 -> TtsSettingsContent(
+                            2 -> WarningSoundContent(
+                                countdownWarningSeconds = countdownWarningSeconds,
+                                currentSoundType = currentSoundType,
+                                currentCustomPath = currentCustomPath,
+                                currentTtsText = currentTtsText,
+                                onSetCountdownWarningSeconds = onSetCountdownWarningSeconds,
+                                onSetCountdownWarningSoundType = onSetCountdownWarningSoundType,
+                                onSetCustomPath = onSetCustomPath,
+                                onSetTtsText = onSetTtsText,
+                                timerFinishSoundType = timerFinishSoundType,
+                                timerFinishCustomPath = timerFinishCustomPath,
+                                timerFinishTtsText = timerFinishTtsText,
+                                onSetTimerFinishSoundType = onSetTimerFinishSoundType,
+                                onSetTimerFinishCustomPath = onSetTimerFinishCustomPath,
+                                onSetTimerFinishTtsText = onSetTimerFinishTtsText
+                            )
+                            3 -> TtsSettingsContent(
                                 availableTtsEngines = availableTtsEngines,
                                 selectedTtsEngine = selectedTtsEngine,
                                 onSetTtsEngine = onSetTtsEngine,
@@ -260,9 +248,9 @@ fun AppSettingsDialog(
                                 onCleanupUnusedCache = onCleanupUnusedCache,
                                 onRebuildMissingCache = onRebuildMissingCache
                             )
-                            3 -> BatteryContent()
-                            4 -> AboutContent()
-                            5 -> PermissionContent(
+                            4 -> BatteryContent()
+                            5 -> AboutContent()
+                            6 -> PermissionContent(
                                 context = context,
                                 onRequestPermissions = { /* handled inside */ }
                             )
@@ -272,9 +260,8 @@ fun AppSettingsDialog(
             }
         }
     }
-}
 
-// ════ 通用设置（语言 + 主题 + 更新 + 录音）════
+    // ════ 通用设置（语言 + 主题 + 更新 + 录音）════
 @Composable
 private fun GeneralSettingsContent(
     lang: String,
@@ -289,9 +276,18 @@ private fun GeneralSettingsContent(
     onTempPathChange: (String) -> Unit,
     onSavePath: () -> Unit,
     onTempDbPathChange: (String) -> Unit,
-    onSaveDbPath: () -> Unit
+    onSaveDbPath: () -> Unit,
+    // 倒计时预警
+    countdownWarningSeconds: Int = 120,
+    currentSoundType: String = "tick_tock",
+    currentCustomPath: String = "",
+    currentTtsText: String = "",
+    onSetCountdownWarningSeconds: (Int) -> Unit = {},
+    onSetCountdownWarningSoundType: (String) -> Unit = {},
+    onSetCustomPath: (String) -> Unit = {},
+    onSetTtsText: (String) -> Unit = {}
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // ── 语言与主题 ──
         SettingsSectionCard("🌐 语言与主题") {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -357,6 +353,592 @@ private fun GeneralSettingsContent(
     }
 }
 
+// ════ 警告音设置 ════
+@Composable
+private fun WarningSoundContent(
+    countdownWarningSeconds: Int = 120,
+    currentSoundType: String = "tick_tock",
+    currentCustomPath: String = "",
+    currentTtsText: String = "",
+    onSetCountdownWarningSeconds: (Int) -> Unit = {},
+    onSetCountdownWarningSoundType: (String) -> Unit = {},
+    onSetCustomPath: (String) -> Unit = {},
+    onSetTtsText: (String) -> Unit = {},
+    // 计时器响铃设置（同一张卡片，独立选择）
+    timerFinishSoundType: String = "tick_tock",
+    timerFinishCustomPath: String = "",
+    timerFinishTtsText: String = "",
+    onSetTimerFinishSoundType: (String) -> Unit = {},
+    onSetTimerFinishCustomPath: (String) -> Unit = {},
+    onSetTimerFinishTtsText: (String) -> Unit = {}
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SettingsSectionCard("🔊 预警音设置") {
+            val previewCtx = LocalContext.current
+            val previewScope = rememberCoroutineScope()
+
+            // ── 作用目标选择 ──
+            var target by remember { mutableStateOf("countdown") } // "countdown" | "timer"
+            Text("配置目标", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = target == "countdown",
+                    onClick = { target = "countdown" },
+                    label = { Text("⏰ 倒计时预警", fontSize = 11.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = target == "timer",
+                    onClick = { target = "timer" },
+                    label = { Text("⏱ 计时器响铃", fontSize = 11.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+
+            // 根据目标选择绑定的值和回调
+            val currentSoundType = if (target == "countdown") currentSoundType else timerFinishSoundType
+            val currentCustomPath = if (target == "countdown") currentCustomPath else timerFinishCustomPath
+            val currentTtsText = if (target == "countdown") currentTtsText else timerFinishTtsText
+            val onSetSoundType: (String) -> Unit = if (target == "countdown") onSetCountdownWarningSoundType else onSetTimerFinishSoundType
+            val onSetCustomPath: (String) -> Unit = if (target == "countdown") onSetCustomPath else onSetTimerFinishCustomPath
+            val onSetTtsText: (String) -> Unit = if (target == "countdown") onSetTtsText else onSetTimerFinishTtsText
+
+            // 倒计时预警专属：时长选择
+            if (target == "countdown") {
+                Text("提前预警时间", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                val durationOpts = listOf(30 to "30秒", 60 to "1分钟", 120 to "2分钟", 180 to "3分钟", 300 to "5分钟", 600 to "10分钟")
+                durationOpts.chunked(3).forEach { chunk ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        chunk.forEach { (sec, label) ->
+                            FilterChip(
+                                selected = countdownWarningSeconds == sec,
+                                onClick = { onSetCountdownWarningSeconds(sec) },
+                                label = { Text(label, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // ── 音色选择（共用，读写根据 target 切换） ──
+            Text("音色", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            var previewingSound by remember { mutableStateOf<String?>(null) }
+            val previewPlayer = remember { mutableStateOf<MediaPlayer?>(null) }
+
+            fun previewSound(type: String) {
+                // 停止之前的预览
+                previewPlayer.value?.stop()
+                previewPlayer.value?.release()
+                previewPlayer.value = null
+                previewingSound = type
+                when (type) {
+                    "tick_tock" -> {
+                        // 本地 AudioTrack 预览，不依赖 ChimeGenerator 的全局线程
+                        previewScope.launch {
+                            try {
+                                val tickData = com.example.alarm.ChimeGenerator.generateTickOnce(true)
+                                val tockData = com.example.alarm.ChimeGenerator.generateTickOnce(false)
+                                var isTick = true
+                                repeat(3) { // 播放 3 声
+                                    val data = if (isTick) tickData else tockData
+                                    isTick = !isTick
+                                    val track = android.media.AudioTrack.Builder()
+                                        .setAudioAttributes(
+                                            android.media.AudioAttributes.Builder()
+                                                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                                .build()
+                                        )
+                                        .setAudioFormat(
+                                            android.media.AudioFormat.Builder()
+                                                .setEncoding(android.media.AudioFormat.ENCODING_PCM_FLOAT)
+                                                .setSampleRate(44100)
+                                                .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                                                .build()
+                                        )
+                                        .setBufferSizeInBytes(data.size * 4)
+                                        .setTransferMode(android.media.AudioTrack.MODE_STATIC)
+                                        .build()
+                                    try {
+                                        track.write(data, 0, data.size, android.media.AudioTrack.WRITE_BLOCKING)
+                                        track.play()
+                                        kotlinx.coroutines.delay(1000L)
+                                    } finally {
+                                        try { track.stop() } catch(_: Exception) {}
+                                        try { track.release() } catch(_: Exception) {}
+                                    }
+                                }
+                            } catch(_: Exception) {}
+                            previewingSound = null
+                        }
+                    }
+                    "chime_0", "chime_1", "chime_2", "chime_3" -> {
+                        val pattern = type.last().digitToInt()
+                        com.example.alarm.ChimeGenerator.playChimePattern(pattern)
+                        previewScope.launch {
+                            kotlinx.coroutines.delay(4000)
+                            previewingSound = null
+                        }
+                    }
+                    "custom" -> {
+                        if (currentCustomPath.isNotBlank()) {
+                            try {
+                                val player = MediaPlayer()
+                                previewPlayer.value = player
+                                val path = currentCustomPath
+                                if (path.startsWith("content://") || path.startsWith("android.resource://")) {
+                                    player.setDataSource(previewCtx, android.net.Uri.parse(path))
+                                } else {
+                                    player.setDataSource(path)
+                                }
+                                player.setAudioAttributes(
+                                    AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_ALARM)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                        .build()
+                                )
+                                player.setOnCompletionListener { previewingSound = null }
+                                player.prepare()
+                                player.start()
+                            } catch (e: Exception) {
+                                previewingSound = null
+                                android.widget.Toast.makeText(previewCtx, "无法播放该文件", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            android.widget.Toast.makeText(previewCtx, "请先选择录音文件", android.widget.Toast.LENGTH_SHORT).show()
+                            previewingSound = null
+                        }
+                    }
+                }
+            }
+
+            val soundOptions = listOf(
+                "tick_tock" to "滴答声",
+                "chime_0" to "旋律钟声",
+                "chime_1" to "西敏寺钟声",
+                "chime_2" to "清亮上行",
+                "chime_3" to "梦幻叮咚",
+                "custom" to "自定义录音",
+                "tts" to "TTS 朗读文字"
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 每行最多 3 个
+                val chunks = soundOptions.chunked(3)
+                for (chunk in chunks) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        chunk.forEach { (type, label) ->
+                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                FilterChip(
+                                    selected = currentSoundType == type,
+                                    onClick = { onSetSoundType(type) },
+                                    label = { Text(label, fontSize = 10.sp) },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                if (type != "tts") {
+                                    IconButton(
+                                        onClick = { previewSound(type) },
+                                        modifier = Modifier.size(28.dp),
+                                        enabled = previewingSound != type
+                                    ) {
+                                        Icon(
+                                            if (previewingSound == type) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                            contentDescription = "试听",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        // 补空位
+                        repeat(3 - chunk.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            // 自定义录音 — 真正的录音/选择文件
+            if (currentSoundType == "custom") {
+                Spacer(Modifier.height(8.dp))
+                Text("自定义录音文件", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+
+                // 录音状态（必须在 launcher 之前定义）
+                var showRecording by remember { mutableStateOf(false) }
+                var isRec by remember { mutableStateOf(false) }
+                var recDuration by remember { mutableIntStateOf(0) }
+                var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+                // 跟踪当前录音文件路径
+                var currentRecFilePath by remember { mutableStateOf<String?>(null) }
+
+                // 文件选择器
+                val audioPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri: Uri? ->
+                    if (uri != null) {
+                        val fileName = "warning_${System.currentTimeMillis()}.mp3"
+                        try {
+                            val savedPath = File(previewCtx.filesDir, "ringtones").also { it.mkdirs() }
+                            val destFile = File(savedPath, fileName)
+                            previewCtx.contentResolver.openInputStream(uri)?.use { input ->
+                                destFile.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            onSetCustomPath(destFile.absolutePath)
+                            Toast.makeText(previewCtx, "已选择: $fileName", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(previewCtx, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+
+                // 录音权限请求
+                val recordPermLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) showRecording = true
+                    else Toast.makeText(previewCtx, "需要麦克风权限才能录音", Toast.LENGTH_SHORT).show()
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { audioPickerLauncher.launch(arrayOf("audio/*")) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("选择文件", fontSize = 11.sp)
+                    }
+                    Button(
+                        onClick = {
+                            val perm = Manifest.permission.RECORD_AUDIO
+                            val hasPerm = ContextCompat.checkSelfPermission(previewCtx, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            if (hasPerm) {
+                                showRecording = true
+                            } else {
+                                recordPermLauncher.launch(perm)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5E1717))
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("录制新录音", fontSize = 11.sp, color = Color.White)
+                    }
+                }
+
+                // 录音对话框
+                if (showRecording) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            showRecording = false
+                            isRec = false
+                            recDuration = 0
+                            try { mediaRecorder?.stop(); mediaRecorder?.release() } catch(_: Exception) {}
+                            mediaRecorder = null
+                        },
+                        title = { Text("录制新录音", fontWeight = FontWeight.Bold) },
+                        text = {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    if (isRec) "录音中..." else "准备录音",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "${recDuration / 60}:${String.format("%02d", recDuration % 60)}",
+                                    fontSize = 36.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = if (isRec) Color(0xFFF44336) else MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            if (!isRec) {
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val dir = File(previewCtx.filesDir, "ringtones").also { it.mkdirs() }
+                                            val file = File(dir, "warning_rec_${System.currentTimeMillis()}.m4a")
+                                            currentRecFilePath = file.absolutePath
+                                            val recorder = MediaRecorder().apply {
+                                                setAudioSource(MediaRecorder.AudioSource.MIC)
+                                                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                                setAudioSamplingRate(44100)
+                                                setAudioChannels(1)
+                                                setAudioEncodingBitRate(96000)
+                                                setOutputFile(file.absolutePath)
+                                                prepare()
+                                                start()
+                                            }
+                                            mediaRecorder = recorder
+                                            isRec = true
+                                            // 计时
+                                            previewScope.launch {
+                                                while (isRec) {
+                                                    kotlinx.coroutines.delay(1000)
+                                                    recDuration++
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(previewCtx, "录音启动失败", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) { Text("开始录音", fontWeight = FontWeight.Bold) }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        isRec = false
+                                        try {
+                                            mediaRecorder?.stop()
+                                            mediaRecorder?.release()
+                                            mediaRecorder = null
+                                            val savedPath = currentRecFilePath
+                                            if (savedPath != null && File(savedPath).exists()) {
+                                                onSetCustomPath(savedPath)
+                                                Toast.makeText(previewCtx, "已保存录音", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(previewCtx, "保存失败", Toast.LENGTH_SHORT).show()
+                                        }
+                                        showRecording = false
+                                        recDuration = 0
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
+                                ) { Text("停止并保存", color = Color.White, fontWeight = FontWeight.Bold) }
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                showRecording = false
+                                isRec = false
+                                recDuration = 0
+                                try { mediaRecorder?.stop(); mediaRecorder?.release() } catch(_: Exception) {}
+                                mediaRecorder = null
+                            }) { Text("取消") }
+                        }
+                    )
+                }
+                if (currentCustomPath.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.AudioFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                currentCustomPath.substringAfterLast('/'),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            // 播放试听按钮
+                            var isPlayingCustom by remember { mutableStateOf(false) }
+                            var customPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+                            IconButton(
+                                onClick = {
+                                    if (isPlayingCustom) {
+                                        customPlayer?.stop()
+                                        customPlayer?.release()
+                                        customPlayer = null
+                                        isPlayingCustom = false
+                                    } else {
+                                        try {
+                                            val player = MediaPlayer()
+                                            customPlayer = player
+                                            player.setDataSource(currentCustomPath)
+                                            player.setAudioAttributes(
+                                                AudioAttributes.Builder()
+                                                    .setUsage(AudioAttributes.USAGE_ALARM)
+                                                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                                    .build()
+                                            )
+                                            player.setOnCompletionListener {
+                                                isPlayingCustom = false
+                                                customPlayer?.release()
+                                                customPlayer = null
+                                            }
+                                            player.prepare()
+                                            player.start()
+                                            isPlayingCustom = true
+                                        } catch (e: Exception) {
+                                            Toast.makeText(previewCtx, "无法播放", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    if (isPlayingCustom) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    contentDescription = if (isPlayingCustom) "停止" else "播放",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(onClick = {
+                                customPlayer?.stop()
+                                customPlayer?.release()
+                                customPlayer = null
+                                isPlayingCustom = false
+                                onSetCustomPath("")
+                                currentRecFilePath = null
+                            }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // TTS 文字 + 试听按钮
+            if (currentSoundType == "tts") {
+                Spacer(Modifier.height(8.dp))
+                Text("朗读文字", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                var ttsText by remember(currentTtsText) { mutableStateOf(currentTtsText) }
+                OutlinedTextField(
+                    value = ttsText,
+                    onValueChange = {
+                        ttsText = it
+                        onSetTtsText(it)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                    singleLine = false,
+                    maxLines = 3,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                    ),
+                    placeholder = { Text("例如：注意！闹钟即将响起", fontSize = 11.sp) }
+                )
+                Spacer(Modifier.height(6.dp))
+                // TTS 试听
+                var isTtsTesting by remember { mutableStateOf(false) }
+                val ttsForPreview = remember { mutableStateOf<TextToSpeech?>(null) }
+                Button(
+                    onClick = {
+                        val text = ttsText.ifBlank { "注意！闹钟即将响起" }
+                        isTtsTesting = true
+                        if (ttsForPreview.value == null) {
+                            ttsForPreview.value = TextToSpeech(previewCtx) {
+                                if (it == TextToSpeech.SUCCESS) {
+                                    ttsForPreview.value?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "preview")
+                                }
+                                previewScope.launch {
+                                    kotlinx.coroutines.delay(3000)
+                                    isTtsTesting = false
+                                }
+                            }
+                        } else {
+                            ttsForPreview.value?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "preview")
+                            previewScope.launch {
+                                kotlinx.coroutines.delay(3000)
+                                isTtsTesting = false
+                            }
+                        }
+                    },
+                    enabled = !isTtsTesting,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Icon(
+                        if (isTtsTesting) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isTtsTesting) "播放中..." else "▶ 试听", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        Spacer(Modifier.height(8.dp))
+        Text("⏱ 计时器响铃", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        Text("音色", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        val sOpts2 = listOf(
+            "tick_tock" to "滴答声", "chime_0" to "旋律钟声", "chime_1" to "西敏寺钟声",
+            "chime_2" to "清亮上行", "chime_3" to "梦幻叮咚", "custom" to "自定义录音",
+            "tts" to "TTS 朗读文字"
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            sOpts2.chunked(3).forEach { chunk ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    chunk.forEach { (type, label) ->
+                        FilterChip(
+                            selected = timerFinishSoundType == type,
+                            onClick = { onSetTimerFinishSoundType(type) },
+                            label = { Text(label, fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    repeat(3 - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
+                }
+            }
+        }
+        if (timerFinishSoundType == "custom") {
+            Spacer(Modifier.height(8.dp))
+            Text("录音文件路径", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = timerFinishCustomPath,
+                onValueChange = onSetTimerFinishCustomPath,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                )
+            )
+        }
+        if (timerFinishSoundType == "tts") {
+            Spacer(Modifier.height(8.dp))
+            Text("朗读文字", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = timerFinishTtsText,
+                onValueChange = onSetTimerFinishTtsText,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                singleLine = false,
+                maxLines = 3,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                ),
+                placeholder = { Text("例如：时间到！", fontSize = 11.sp) }
+            )
+        }
+    }
+}
+
+// ════ 复制偏移 ════
+
 // ════ 复制偏移 ════
 @Composable
 private fun OffsetContent(
@@ -384,7 +966,7 @@ private fun OffsetContent(
     }
 }
 
-// ════ 电池优化 ════
+    // ════ 电池优化 ════
 @Composable
 private fun BatteryContent() {
     val bCtx = LocalContext.current
@@ -642,7 +1224,7 @@ private fun SettingsSectionCard(title: String, content: @Composable ColumnScope.
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             content()

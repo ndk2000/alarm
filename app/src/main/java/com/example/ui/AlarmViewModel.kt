@@ -83,6 +83,41 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     private val _duplicateOffsetMinutes = MutableStateFlow(10) // 默认复制后加10分钟
     val duplicateOffsetMinutes: StateFlow<Int> = _duplicateOffsetMinutes.asStateFlow()
 
+    // ══════════════════════════════════════════
+    // 倒计时预警设置（响铃前 X 秒开始预警提示）
+    // ══════════════════════════════════════════
+    private val _countdownWarningSeconds = MutableStateFlow(120) // 默认提前 2 分钟
+    val countdownWarningSeconds: StateFlow<Int> = _countdownWarningSeconds.asStateFlow()
+
+    // sound type: "tick_tock" | "chime_0" | "chime_1" | "chime_2" | "chime_3" | "custom" | "tts"
+    private val _countdownWarningSoundType = MutableStateFlow("tick_tock")
+    val countdownWarningSoundType: StateFlow<String> = _countdownWarningSoundType.asStateFlow()
+
+    private val _countdownWarningCustomPath = MutableStateFlow("")
+    val countdownWarningCustomPath: StateFlow<String> = _countdownWarningCustomPath.asStateFlow()
+
+    private val _countdownWarningTtsText = MutableStateFlow("")
+    val countdownWarningTtsText: StateFlow<String> = _countdownWarningTtsText.asStateFlow()
+
+    // ═══ 计时器响铃设置（独立于倒计时预警，但设置放在同一张卡片） ═══
+    private val _timerFinishSoundType = MutableStateFlow("tick_tock")
+    val timerFinishSoundType: StateFlow<String> = _timerFinishSoundType.asStateFlow()
+    private val _timerFinishCustomPath = MutableStateFlow("")
+    val timerFinishCustomPath: StateFlow<String> = _timerFinishCustomPath.asStateFlow()
+    private val _timerFinishTtsText = MutableStateFlow("")
+    val timerFinishTtsText: StateFlow<String> = _timerFinishTtsText.asStateFlow()
+
+    /** 预警音配置聚合体（减少 MainAppContent 参数数量） */
+    data class WarningSoundConfig(
+        val countdownWarningSeconds: Int = 120,
+        val countdownWarningSoundType: String = "tick_tock",
+        val countdownWarningCustomPath: String = "",
+        val countdownWarningTtsText: String = "",
+        val timerFinishSoundType: String = "tick_tock",
+        val timerFinishCustomPath: String = "",
+        val timerFinishTtsText: String = ""
+    )
+
     // 录音存放路径配置（默认使用应用专属目录，兼容 Android 11+ 分区存储）
     private val _customRecordingPath = MutableStateFlow("")
     val customRecordingPath: StateFlow<String> = _customRecordingPath.asStateFlow()
@@ -336,6 +371,45 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         _timerSeconds.value = s.coerceIn(0, 59)
         val prefs = getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
         prefs.edit().putInt("timer_seconds", _timerSeconds.value).apply()
+    }
+
+    // ═══ 倒计时预警设置 ═══
+    fun setCountdownWarningSeconds(sec: Int) {
+        _countdownWarningSeconds.value = sec.coerceIn(10, 3600)
+        getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .edit().putInt("countdown_warning_seconds", _countdownWarningSeconds.value).apply()
+    }
+    fun setCountdownWarningSoundType(type: String) {
+        _countdownWarningSoundType.value = type
+        getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .edit().putString("countdown_warning_sound_type", type).apply()
+    }
+    fun setCountdownWarningCustomPath(path: String) {
+        _countdownWarningCustomPath.value = path
+        getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .edit().putString("countdown_warning_custom_path", path).apply()
+    }
+    fun setCountdownWarningTtsText(text: String) {
+        _countdownWarningTtsText.value = text
+        getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .edit().putString("countdown_warning_tts_text", text).apply()
+    }
+
+    // ═══ 计时器响铃设置 ═══
+    fun setTimerFinishSoundType(type: String) {
+        _timerFinishSoundType.value = type
+        getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .edit().putString("timer_finish_sound_type", type).apply()
+    }
+    fun setTimerFinishCustomPath(path: String) {
+        _timerFinishCustomPath.value = path
+        getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .edit().putString("timer_finish_custom_path", path).apply()
+    }
+    fun setTimerFinishTtsText(text: String) {
+        _timerFinishTtsText.value = text
+        getApplication<Application>().getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            .edit().putString("timer_finish_tts_text", text).apply()
     }
 
     // 内部调试日志记录
@@ -613,6 +687,17 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         }
 
         _autoUpdateEnabled.value = settings.getBoolean("auto_update", false)
+
+        // 恢复倒计时预警设置
+        _countdownWarningSeconds.value = settings.getInt("countdown_warning_seconds", 120)
+        _countdownWarningSoundType.value = settings.getString("countdown_warning_sound_type", "tick_tock") ?: "tick_tock"
+        _countdownWarningCustomPath.value = settings.getString("countdown_warning_custom_path", "") ?: ""
+        _countdownWarningTtsText.value = settings.getString("countdown_warning_tts_text", "") ?: ""
+
+        // 恢复计时器响铃设置
+        _timerFinishSoundType.value = settings.getString("timer_finish_sound_type", "tick_tock") ?: "tick_tock"
+        _timerFinishCustomPath.value = settings.getString("timer_finish_custom_path", "") ?: ""
+        _timerFinishTtsText.value = settings.getString("timer_finish_tts_text", "") ?: ""
 
         if (_autoUpdateEnabled.value) {
             checkForUpdates()
@@ -1155,7 +1240,8 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
         daysOfWeek: String,
         label: String,
         ringtonePath: String?,
-        vibrate: Boolean
+        vibrate: Boolean,
+        ringtoneDurationSecs: Int = 0
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val newAlarm = Alarm(
@@ -1166,7 +1252,8 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
                 isEnabled = true,
                 label = label,
                 ringtonePath = ringtonePath,
-                vibrate = vibrate
+                vibrate = vibrate,
+                ringtoneDurationSecs = ringtoneDurationSecs
             )
             val insertId = repository.insertAlarm(newAlarm)
             val finalAlarm = newAlarm.copy(id = insertId)
@@ -2428,11 +2515,12 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application), 
     }
 
     private fun onTimerFinished() {
-        // 倒计时结束，拉起响铃
+        // 倒计时结束，拉起响铃（标记为计时器，界面区分）
         val intent = Intent(getApplication(), AlarmService::class.java).apply {
             action = "START_RINGING"
             putExtra("ALARM_LABEL", "计时结束")
             putExtra("ALARM_VIBRATE", true)
+            putExtra("IS_TIMER", true)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getApplication<Application>().startForegroundService(intent)

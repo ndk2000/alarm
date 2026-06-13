@@ -33,7 +33,8 @@ data class Alarm(
     val isEnabled: Boolean = true,
     val label: String = "Alarm",
     val ringtonePath: String? = null, // Path to custom ringtone uploaded via WiFi or system default if null
-    val vibrate: Boolean = true
+    val vibrate: Boolean = true,
+    val ringtoneDurationSecs: Int = 0 // 0 = 持续响铃直到手动关闭
 ) {
     // Helper to check if a specific day is selected
     fun isDayEnabled(day: Int): Boolean {

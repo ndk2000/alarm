@@ -491,8 +491,8 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
         onLoadCustomRingtones = { viewModel.loadCustomRingtones() },
         onLoadLocalRecordings = { viewModel.loadLocalRecordings() },
         onAddGroup = { viewModel.addGroup(it) },
-        onAddAlarm = { groupId, hour, minute, days, label, ringtone, vibrate ->
-            viewModel.addAlarm(groupId, hour, minute, days, label, ringtone, vibrate)
+        onAddAlarm = { groupId, hour, minute, days, label, ringtone, vibrate, durationSecs ->
+            viewModel.addAlarm(groupId, hour, minute, days, label, ringtone, vibrate, durationSecs)
         },
         onUpdateAlarm = { viewModel.updateAlarm(it) },
         onImportAudio = { uri, name -> viewModel.importLocalAudio(context, uri, name) },
@@ -579,7 +579,24 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
                 )
             }
             viewModel.addCheckInGroup(group.name, tasks)
-        }
+        },
+        // 预警音配置
+        warningSoundConfig = com.example.ui.AlarmViewModel.WarningSoundConfig(
+            countdownWarningSeconds = viewModel.countdownWarningSeconds.collectAsState().value,
+            countdownWarningSoundType = viewModel.countdownWarningSoundType.collectAsState().value,
+            countdownWarningCustomPath = viewModel.countdownWarningCustomPath.collectAsState().value,
+            countdownWarningTtsText = viewModel.countdownWarningTtsText.collectAsState().value,
+            timerFinishSoundType = viewModel.timerFinishSoundType.collectAsState().value,
+            timerFinishCustomPath = viewModel.timerFinishCustomPath.collectAsState().value,
+            timerFinishTtsText = viewModel.timerFinishTtsText.collectAsState().value
+        ),
+        onSetCountdownWarningSeconds = { viewModel.setCountdownWarningSeconds(it) },
+        onSetCountdownWarningSoundType = { viewModel.setCountdownWarningSoundType(it) },
+        onSetCountdownWarningCustomPath = { viewModel.setCountdownWarningCustomPath(it) },
+        onSetCountdownWarningTtsText = { viewModel.setCountdownWarningTtsText(it) },
+        onSetTimerFinishSoundType = { viewModel.setTimerFinishSoundType(it) },
+        onSetTimerFinishCustomPath = { viewModel.setTimerFinishCustomPath(it) },
+        onSetTimerFinishTtsText = { viewModel.setTimerFinishTtsText(it) }
     )
 }
 
@@ -630,8 +647,8 @@ fun MainAppPreview() {
                     AlarmGroup(2, "休息日", true)
                 ),
                 alarms = listOf(
-                    Alarm(1, 1, 7, 30, "1,2,3,4,5", true, "早起打卡", null, true),
-                    Alarm(2, 2, 10, 0, "6,7", true, "周末懒觉", null, true)
+                    Alarm(1, 1, 7, 30, "1,2,3,4,5", true, "早起打卡", null, true, ringtoneDurationSecs = 0),
+                    Alarm(2, 2, 10, 0, "6,7", true, "周末懒觉", null, true, ringtoneDurationSecs = 0)
                 ),
                 chimes = List(24) { i -> HourlyChime(i, i == 12, true, true) },
                 customRingtones = listOf("晨间鸟鸣.mp3", "活力电音.wav"),
@@ -653,7 +670,7 @@ fun MainAppPreview() {
                 onLoadCustomRingtones = {},
                 onLoadLocalRecordings = {},
                 onAddGroup = {},
-                onAddAlarm = { _, _, _, _, _, _, _ -> },
+                onAddAlarm = { _, _, _, _, _, _, _, _ -> },
                 onUpdateAlarm = {},
                 onImportAudio = { _, _ -> null },
                 onExportConfig = {},

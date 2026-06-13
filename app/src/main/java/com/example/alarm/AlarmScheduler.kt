@@ -105,6 +105,7 @@ object AlarmScheduler {
             putExtra("ALARM_LABEL", alarm.label)
             putExtra("ALARM_RINGTONE", alarm.ringtonePath)
             putExtra("ALARM_VIBRATE", alarm.vibrate)
+            putExtra("ALARM_DURATION_SECS", alarm.ringtoneDurationSecs)
         }
 
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
