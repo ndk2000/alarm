@@ -3,6 +3,7 @@ package com.example.alarm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.util.Log
 import com.example.db.AlarmDatabase
 import com.example.db.AlarmRepository
@@ -24,6 +25,16 @@ class AlarmReceiver : BroadcastReceiver() {
             // Re-schedule all active alarms on boot
             rescheduleAll(context)
         } else if (action == "com.example.alarm.ACTION_TRIGGER_ALARM") {
+            val alarmWakeLock = try {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AlarmReceiver:StartRinging").apply {
+                    acquire(30_000L)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "获取响铃启动唤醒锁失败: ${e.message}")
+                null
+            }
+
             val alarmId = intent.getLongExtra("ALARM_ID", -1L)
             val label = intent.getStringExtra("ALARM_LABEL") ?: "闹钟"
             val ringtone = intent.getStringExtra("ALARM_RINGTONE")

@@ -189,6 +189,9 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
                 manageStorageLauncher.launch(intent)
             }
         }
+        
+        // 核心：请求忽略电池优化，防止待机闹钟不响
+        requestIgnoreBatteryOptimizations(context)
     }
 
     val groups by viewModel.groups.collectAsState()
@@ -609,6 +612,29 @@ fun MainAppShellContent(viewModel: AlarmViewModel) {
 
 
 
+
+/** 请求忽略电池优化，确保待机响铃可靠性 */
+private fun requestIgnoreBatteryOptimizations(context: android.content.Context) {
+    val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+    if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+        try {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            // 部分厂商可能拦截此 Intent，引导用户手动设置
+            try {
+                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                context.startActivity(intent)
+            } catch (e2: Exception) {
+                Log.e("MainActivity", "无法打开电池优化设置", e2)
+            }
+        }
+    }
+}
 
 // Utility IP fetcher on local Network
 fun getLocalIpAddress(): String? {

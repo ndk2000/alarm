@@ -2,6 +2,19 @@
 
 ---
 
+### 2026-06-14（修复 WheelDialPicker 吸附回调多减1，导致23点变-1点 + 兼容处理）
+- `WheelDialPicker.kt` L85: 修复拔盘滚动吸附回调多减了 1
+  - 问题：`snappedValue` 已经是 range 内的具体值（如 0~23），但回调写成 `onValueChange(snappedValue - 1)`，选 23 传 22，选 0 传 -1
+  - 改前：`onValueChange(snappedValue - 1)`
+  - 改后：`onValueChange(snappedValue)`
+- `WheelDialPicker.kt` L57-L61: initialIndex 加 `value.coerceIn(range.first, range.last)`，防止数据库已有脏数据（如 -1）导致拔盘出界
+- `AddAlarmDialog.kt` L54-L55: 编辑时 hour/minute 加 coerceIn 纠正已有脏数据
+- `AddAlarmDialog.kt` 保存逻辑: 加 coerceIn 兜底防止再次写入脏数据
+- `CountdownTab.kt` L186-L189: 移除 CountdownTab 中独立的预警音效播放逻辑（包括状态变量、`stopAllWarningSounds()`、DisposableEffect、LaunchedEffect 播放块），统一由 MainAppContent 全局管理预警音效
+  - 问题：MainAppContent 和 CountdownTab 各有一套完整的独立预警音效播放系统。当用户在其他 Tab 时 MainAppContent 已开始播放预警音，切到倒计时 Tab 后 CountdownTab 的 LaunchedEffect 再次触发播放，两套叠加导致重音
+  - 改前：两套独立播放逻辑，切 Tab 时重音
+  - 改后：CountdownTab 只负责 UI 展示（全屏倒计时、红点闪烁），预警音效全部由 MainAppContent 控制
+
 ## Agent工作记录
 
 ### 2026-06-13（铃声时长设置 + 唤醒屏幕优化）

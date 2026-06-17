@@ -147,8 +147,14 @@ class AlarmGuardService : Service() {
                     val groupAlarms = repository.getAlarmsByGroup(group.id)
                     for (alarm in groupAlarms) {
                         if (alarm.isEnabled && group.isEnabled) {
-                            AlarmScheduler.scheduleAlarm(this@AlarmGuardService, alarm, group)
-                            rescheduledCount++
+                            val nextTime = AlarmScheduler.calculateNextAlarmTime(alarm)
+                            val diffMillis = nextTime - System.currentTimeMillis()
+                            // 闹钟触发点前后 2 分钟不由守护服务重设，避免关屏/Doze 下广播稍有延迟时，
+                            // 同一个 PendingIntent 被重新 setAlarmClock 到下一天，导致当前响铃被覆盖。
+                            if (diffMillis !in -120_000L..120_000L) {
+                                AlarmScheduler.scheduleAlarm(this@AlarmGuardService, alarm, group)
+                                rescheduledCount++
+                            }
                         }
                     }
                 }
