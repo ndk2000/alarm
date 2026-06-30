@@ -1,21 +1,51 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ========== Room 数据库 ==========
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keep @androidx.room.Dao interface *
+-keep class androidx.room.** { *; }
+-dontwarn androidx.room.paging.**
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ========== Compose ==========
+-keep class androidx.compose.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# ========== Moshi (JSON 序列化) ==========
+-keep class com.squareup.moshi.** { *; }
+-keep @com.squareup.moshi.JsonClass class *
+-keepclassmembers class * {
+    @com.squareup.moshi.Json <fields>;
+}
+-keepclassmembers @com.squareup.moshi.JsonClass class * extends java.lang.Enum {
+    <fields>;
+}
+-keep,allowobfuscation,allowshrinking class kotlin.Metadata
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# ========== OkHttp ==========
+-keep class okhttp3.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
+
+# ========== Supabase ==========
+-keep class io.github.jan.supabase.** { *; }
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+
+# ========== ZXing (二维码) ==========
+-keep class com.google.zxing.** { *; }
+
+# ========== 数据实体（JSON 反序列化需要） ==========
+-keep class com.ccsoft.alarm.db.** { *; }
+-keep class com.ccsoft.alarm.cloud.** { *; }
+
+# ========== BuildConfig ==========
+-keep class com.ccsoft.alarm.BuildConfig { *; }
+
+# ========== 通用规则 ==========
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable
+-keep class kotlin.Metadata { *; }
+-keep class kotlinx.coroutines.** { *; }
+
+# ========== Firebase (如使用) ==========
+-keep class com.google.firebase.** { *; }
+-dontwarn com.google.firebase.**

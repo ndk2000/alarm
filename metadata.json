@@ -1,5 +1,5 @@
 {
-  "name": "Group Alarm",
+  "name": "打卡闹钟",
   "description": "A beautiful alarm application with grouped controls, custom ringtones, 24h hourly chime, and WiFi synchronization of configuration and ringtones.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

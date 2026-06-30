@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- 专用背景层：支持安全着色 -->
+    <ImageView
+        android:id="@+id/widget_bg_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/bg_floating_window"
+        android:scaleType="fitXY" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="4dp"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/widget_text_clock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="00:00:00"
+            android:textColor="#FFFFD700"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:lines="1"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:scrollHorizontally="true"
+            android:ellipsize="none"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+</FrameLayout>

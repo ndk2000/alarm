@@ -32,7 +32,7 @@
 - 每次改动后必须编译验证
 - 编译通过后**必须依次执行三步**，缺一不可：
   1. `adb install` 安装到设备
-  2. `adb shell monkey -p com.example.groupalarm -c android.intent.category.LAUNCHER 1` 打开 App
+  2. `adb shell monkey -p com.ccsoft.alarm -c android.intent.category.LAUNCHER 1` 打开 App
   3. 向用户确认 App 已打开
 - **不要说"搞定"，直到第 3 步完成并报告**
 

@@ -1,0 +1,15 @@
+所在位置 行:1 字符: 285
++ ...  $length) { $lines[$i..($i+99)] | ForEach-Object { $i++; "$i: $_" } } ...
++                                                               ~~~
+变量引用无效。':' 后面的变量名称字符无效。请考虑使用 ${} 分隔名称。
+所在位置 行:1 字符: 354
++ ...  else { $lines[$i..($length-1)] | ForEach-Object { $i++; "$i: $_" } } ...
++                                                               ~~~
+变量引用无效。':' 后面的变量名称字符无效。请考虑使用 ${} 分隔名称。
+所在位置 行:1 字符: 409
++ ... ++; "$i: $_" } } } } else { foreach ($i in 0..(367)) { $($i): $($line ...
++                                                                 ~
+表达式或语句中包含意外的标记“:”。
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : InvalidVariableReferenceWithDrive
+ 

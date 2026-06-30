@@ -34,6 +34,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Android 11+ 软件包可见性声明：允许应用发现系统中的 TTS 引擎和分享目标应用 -->
     <queries>
@@ -91,6 +92,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.screens.FullScreenAlarmActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
         <service
             android:name=".alarm.AlarmService"
             android:enabled="true"
@@ -101,12 +108,18 @@
                 android:value="This foreground service manages background alarms synchronization, TTS hourly chimes, and wireless WiFi config server interfaces."/>
         </service>
 
+        <receiver
+            android:name=".alarm.TimerReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <service
             android:name=".alarm.AlarmGuardService"
             android:enabled="true"
             android:exported="false"
             android:directBootAware="true"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse"
+            android:process=":guard">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Persistent background guard service that periodically verifies all alarm schedules to ensure alarms fire on time even under aggressive power-saving policies."/>
         </service>
@@ -117,7 +130,47 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:launchMode="singleTask"
+            android:screenOrientation="portrait"
             android:exported="false" />
+
+        <activity
+            android:name=".TimerDoneActivity"
+            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <service
+            android:name=".service.FloatingTimerService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":float" />
+
+        <service
+            android:name=".service.TimerService"
+            android:enabled="true"
+            android:exported="false"
+            android:directBootAware="true"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Timer finish sound playback service"/>
+        </service>
+
+        <service
+            android:name=".service.StatusBarClockService"
+            android:enabled="true"
+            android:exported="false" />
+
+        <service
+            android:name=".service.ServiceStatusMonitor"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Service status monitoring notification that displays the running status of all background services."/>
+        </service>
 
         <receiver
             android:name=".alarm.AlarmReceiver"
@@ -127,9 +180,40 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-                <action android:name="com.example.alarm.ACTION_TRIGGER_ALARM" />
-                <action android:name="com.example.alarm.ACTION_TRIGGER_CHIME" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="com.ccsoft.alarm.alarm.ACTION_TRIGGER_ALARM" />
+                <action android:name="com.ccsoft.alarm.alarm.ACTION_TRIGGER_CHIME" />
+                <action android:name="com.ccsoft.alarm.alarm.ACTION_HEARTBEAT" />
             </intent-filter>
+        </receiver>
+
+        <!-- 接收守护服务重启广播（App 被划掉后自动重启守护服务） -->
+        <receiver
+            android:name=".alarm.AlarmGuardRestartReceiver"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":guard" />
+
+        <receiver
+            android:name=".widget.TimerWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/timer_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.NextAlarmWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/next_alarm_widget_info" />
         </receiver>
 
         <provider

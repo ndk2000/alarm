@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- 专用背景层：支持安全着色 -->
+    <ImageView
+        android:id="@+id/widget_bg_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/bg_floating_window"
+        android:scaleType="fitXY" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="6dp"
+        android:orientation="vertical"
+        android:gravity="center">
+
+        <!-- 第一行：响铃时间 -->
+        <TextView
+            android:id="@+id/widget_alarm_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--:--"
+            android:textColor="#FFFFD700"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:includeFontPadding="false" />
+
+        <!-- 第二行：带秒倒计时 (还原为 TextView 以手动移除负号并精确控制显示) -->
+        <TextView
+            android:id="@+id/widget_alarm_countdown"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00:00"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:fontFamily="monospace"
+            android:includeFontPadding="false"
+            android:layout_marginTop="1dp" />
+
+        <!-- 第三行：闹钟标签/原因 -->
+        <TextView
+            android:id="@+id/widget_alarm_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="无任务"
+            android:textColor="#CCFFFFFF"
+            android:textSize="13sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:layout_marginTop="2dp" />
+
+    </LinearLayout>
+</FrameLayout>

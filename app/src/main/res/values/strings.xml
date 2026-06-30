@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Group Alarm</string>
+    <string name="app_name">打卡闹钟</string>
 
     <!-- 标题栏 -->
     <string name="app_title">Smart Alarms</string>
@@ -152,6 +152,7 @@
     <string name="nav_checkin">Check-in</string>
     <string name="nav_countdown">Countdown</string>
     <string name="nav_cloud">Cloud</string>
+    <string name="nav_fullscreen">全屏</string>
     <string name="cloud_import">Import</string>
     <string name="share_records">Share Records</string>
     <string name="no_share_records">No share records yet</string>

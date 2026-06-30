@@ -1,0 +1,110 @@
+Reusing configuration cache.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:mergeDebugNativeLibs UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:stripDebugDebugSymbols UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:kspDebugKotlin UP-TO-DATE
+
+> Task :app:compileDebugKotlin FAILED
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:81:36 Unresolved reference 'SERVICE_GUARD'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:374:36 Unresolved reference 'SERVICE_WARNING'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:512:36 Unresolved reference 'SERVICE_WARNING'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:519:29 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:519:81 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:519:81 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T> T.apply(block: T.() -> Unit): T
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:519:87 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:520:13 Unresolved reference 'putExtra'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:520:22 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:521:13 Unresolved reference 'putExtra'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:521:22 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmGuardService.kt:561:36 Unresolved reference 'SERVICE_GUARD'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:103:36 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:425:36 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:492:44 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:501:40 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:517:40 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:535:44 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:545:40 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:557:44 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:563:44 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1025:36 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1035:29 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1035:81 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1035:81 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T> T.apply(block: T.() -> Unit): T
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1035:87 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1036:13 Unresolved reference 'putExtra'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1036:22 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1037:13 Unresolved reference 'putExtra'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/alarm/AlarmService.kt:1037:22 Unresolved reference 'ServiceStatusMonitor'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:43:36 Unresolved reference 'SERVICE_TIMER'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:51:29 Unresolved reference 'ACTION_SERVICE_STATUS_CHANGED'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:51:60 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:51:60 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T> T.apply(block: T.() -> Unit): T
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:51:66 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:52:13 Unresolved reference 'putExtra'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:52:22 Unresolved reference 'EXTRA_SERVICE_NAME'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:53:13 Unresolved reference 'putExtra'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:53:22 Unresolved reference 'EXTRA_SERVICE_STATUS'.
+e: file:///D:/ai/droidcloud-ide/app/src/main/java/com/ccsoft/alarm/service/TimerService.kt:70:40 Unresolved reference 'SERVICE_TIMER'.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 15s
+30 actionable tasks: 1 executed, 29 up-to-date
+Configuration cache entry reused.

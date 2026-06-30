@@ -12,16 +12,26 @@ import java.util.Date
 import java.util.Locale
 
 android {
-  namespace = "com.example"
+  namespace = "com.ccsoft.alarm"
   compileSdk = 35
 
   defaultConfig {
-    applicationId = "com.example.groupalarm"
+    applicationId = "com.ccsoft.alarm"
     minSdk = 24
     targetSdk = 35
     versionCode = 3
     versionName = "1.2.0"
     buildConfigField("String", "BUILD_DATE", "\"${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}\"")
+
+    // 云端凭据：通过 secrets 插件从 .env 读取，不再硬编码
+    val supabaseUrl: String = project.findProperty("SUPABASE_URL") as String? ?: ""
+    val supabaseAnonKey: String = project.findProperty("SUPABASE_ANON_KEY") as String? ?: ""
+    val firebaseProjectId: String = project.findProperty("FIREBASE_PROJECT_ID") as String? ?: ""
+    val firebaseApiKey: String = project.findProperty("FIREBASE_API_KEY") as String? ?: ""
+    buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl}\"")
+    buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey}\"")
+    buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${firebaseProjectId}\"")
+    buildConfigField("String", "FIREBASE_API_KEY", "\"${firebaseApiKey}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -39,7 +49,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Fall back to debug signing config if release credentials are not provided to ensure downloaded APKs are signed and installable
       val hasKeyEnv = !System.getenv("STORE_PASSWORD").isNullOrEmpty()
@@ -93,6 +103,9 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.zxing.core)
+  implementation(libs.supabase.postgrest)
+  implementation(libs.supabase.auth)
+  implementation(libs.ktor.client.okhttp)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.lifecycle)
   implementation(libs.androidx.camera.view)

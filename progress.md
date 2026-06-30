@@ -7,6 +7,29 @@
     - 增加了语速和音调调节滑块。
     - 增加了测试报时效果按钮。
 
+- **修复 Edge TTS 403 Forbidden 封禁问题**：
+    - **核心逻辑回滚**：参考 `D:\ai\tts-file-gen` 将域名切回 `speech.platform.bing.com`。
+    - **Token 算法修正**：重写了 `generateSecMsGec`，将 Ticks 计算与参考项目对齐（毫秒转纳秒并进行 300s 对齐）。
+    - **认证参数对齐**：将 Token 放入 URL Query 参数而非 Header。
+    - **关键代码段**：
+      ```kotlin
+      private fun generateSecMsGec(): String {
+          var ticks = System.currentTimeMillis() / 1000.0
+          ticks += 11644473600.0 // WIN_EPOCH
+          ticks -= ticks % 300
+          ticks *= 1e9 / 100
+          val strToHash = String.format("%.0f", ticks) + "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
+          val digest = MessageDigest.getInstance("SHA-256").digest(strToHash.toByteArray(Charsets.US_ASCII))
+          return digest.joinToString("") { "%02X".format(it) }
+      }
+      ```
+
+- **优化桌面插件适配与防溢出逻辑**：
+    - **单位重构**：将所有插件 RemoteViews 字号单位由 `SP` 强制改为 `DIP`，彻底解决用户开启系统大字体后插件“爆框”的问题。
+    - **动态缩放**：实现了基于 `onAppWidgetOptionsChanged` 的实时字号计算，插件拉大拉小时文字会自动平滑缩放。
+    - **布局精简**：移除最近闹钟插件的冗余标题，为核心内容（时间+标签）腾出 20% 空间。
+    - **多行支持**：闹钟标签支持 2 行显示，配合 `includeFontPadding="false"` 确保在 2x1 等小格插件下也能完整呈现。
+
 ## 正在处理
 - **排查 TTS 测试无声与调节失效问题**：
     - **发现关键问题**：Android 11+ (API 30+) 需要在清单文件中声明 `TTS_SERVICE` 查询权限。
