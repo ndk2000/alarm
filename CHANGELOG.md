@@ -2,6 +2,21 @@
 
 ---
 
+### 2026-06-30（优化计时结束界面 + 修复闪退 + 添加跳转计时Tab功能）
+
+- `TimerDoneActivity.kt`: 新增计时结束关闭界面
+  - 优化界面设计，参考 `AlarmActiveActivity` 使用绿色系主题（计时器主题色）
+  - 添加脉冲动画图标、当前时间显示
+  - 点击"关闭并继续计时"按钮后，跳转到主界面的计时 Tab（Tab 索引 3）
+- `TimerTab.kt` L49-L60: 移除多余的 `LaunchedEffect(isRinging)`
+  - 问题：`TimerTab` 中启动 `TimerService` 会导致重复启动，与 `AlarmService` 冲突
+  - 改后：`TimerService` 只由 `AlarmService` 或 `TimerReceiver` 启动，UI 不启动服务
+- `TimerDoneActivity.kt`: 修复闪退问题
+  - 问题：`TimerDoneActivity` 继承自 `Activity()`，使用 Compose 时找不到 `LifecycleOwner`
+  - 改后：改为继承自 `ComponentActivity()`，使用 `setContent { ... }` 扩展函数设置 Compose 内容
+
+---
+
 ### 2026-06-30（全屏闹钟布局调整 + 颜色条选择器 + 编辑弹窗拖动）
 
 - `FullScreenAlarmTab.kt` L340-L389: 调整全屏闹钟项布局
